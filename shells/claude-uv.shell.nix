@@ -9,7 +9,9 @@
 #   export CLAUDE_CODE_OAUTH_TOKEN="your_token_here"
 #   nix-shell shells/claude-uv.shell.nix
 let
-  pkgs = import <nixpkgs> { config.allowUnfree = true; };
+  pkgs = import <nixpkgs> {
+    config.allowUnfreePredicate = pkg: pkgs.lib.getName pkg == "claude-code";
+  };
   agent-sandbox =
     import (fetchTarball "https://github.com/archie-judd/agent-sandbox.nix/archive/main.tar.gz")
       {

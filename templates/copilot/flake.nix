@@ -16,7 +16,12 @@
       devShells = forAllSystems (
         system:
         let
-          pkgs = import nixpkgs { system = system; };
+          pkgs = import nixpkgs {
+            system = system;
+            config = {
+              allowUnfreePredicate = pkg: pkgs.lib.getName pkg == "github-copilot-cli";
+            };
+          };
           sbx = agent-sandbox.lib.${system};
           copilot-sandboxed = sbx.mkSandbox {
             pkg = pkgs.github-copilot-cli;

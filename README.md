@@ -92,13 +92,11 @@ nix flake init -t github:archie-judd/agent-sandbox.nix#claude
 nix flake init -t github:archie-judd/agent-sandbox.nix#copilot
 ```
 
-This creates a `flake.nix` in your project (see [`templates/claude/flake.nix`](templates/claude/flake.nix) for what you get). Edit it to suit your needs, then enter the dev shell:
+This creates a `flake.nix` in your project (see [`templates/claude/flake.nix`](templates/claude/flake.nix) for what you get). Edit it to suit your needs, ensure your access token is exported, and then enter the dev shell:
 
 ```bash
-NIXPKGS_ALLOW_UNFREE=1 nix develop --impure
+nix develop
 ```
-
-> **Note**: Claude Code and most other AI CLI tools are not FOSS. You will need to set `NIXPKGS_ALLOW_UNFREE=1` and invoke the shell with `--impure`.
 
 And invoke your wrapped binary:
 

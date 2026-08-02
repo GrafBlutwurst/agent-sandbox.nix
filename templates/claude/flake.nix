@@ -16,7 +16,12 @@
       devShells = forAllSystems (
         system:
         let
-          pkgs = import nixpkgs { system = system; };
+          pkgs = import nixpkgs {
+            system = system;
+            config = {
+              allowUnfreePredicate = pkg: pkgs.lib.getName pkg == "claude-code";
+            };
+          };
           sbx = agent-sandbox.lib.${system};
           claude-sandboxed = sbx.mkSandbox {
             pkg = pkgs.claude-code;

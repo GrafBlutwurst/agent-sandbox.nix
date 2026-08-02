@@ -5,7 +5,9 @@
 #   export GITHUB_TOKEN="your_token_here"
 #   nix-shell shells/copilot.shell.nix
 let
-  pkgs = import <nixpkgs> { config.allowUnfree = true; };
+  pkgs = import <nixpkgs> {
+    config.allowUnfreePredicate = pkg: pkgs.lib.getName pkg == "github-copilot-cli";
+  };
   agent-sandbox =
     import (fetchTarball "https://github.com/archie-judd/agent-sandbox.nix/archive/main.tar.gz")
       {
