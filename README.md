@@ -16,7 +16,7 @@ The sandbox uses [bubblewrap](https://github.com/containers/bubblewrap) on Linux
 - **Git** — the repo's `.git` directory is exposed, including when it sits outside the project tree (worktrees).
 - **Nix** — disabled by default. Optionally allow the agent to run nix commands.
 
-Everything else is denied. `$HOME` is an ephemeral writable tmpfs that disappears when the sandbox exits.
+Everything else is denied. `$HOME` is an ephemeral writable tmpfs that disappears when the sandbox exits. The exception is launching the agent from your home directory itself, which exposes it read-write like any other launch directory. See [Launching from your home directory](#launching-from-your-home-directory).
 
 ## Contents
 
@@ -47,6 +47,7 @@ Everything else is denied. `$HOME` is an ephemeral writable tmpfs that disappear
 * [Security](#security)
     * [What it protects against](#what-it-protects-against)
     * [What it doesn't protect against](#what-it-doesnt-protect-against)
+    * [Launching from your home directory](#launching-from-your-home-directory)
     * [Specific things worth being aware of](#specific-things-worth-being-aware-of)
     * [Linux vs macOS](#linux-vs-macos)
     * [Is this the right tool for me?](#is-this-the-right-tool-for-me)
@@ -204,7 +205,7 @@ The sandbox has been tested with `claude-code` and `copilot-cli`. Other agents s
 
 ## Authentication
 
-Because `$HOME` is masked, agents cannot reach your system keychain, browser sessions, or SSH keys. The recommended approach is to authenticate via environment variable. Interactive login flows (e.g. `claude /login`, `gh auth login`) may not work inside the sandbox.
+Because `$HOME` is masked, agents cannot reach your system keychain, browser sessions, or SSH keys. Launching from your home directory is the exception, and exposes all of it (see [Launching from your home directory](#launching-from-your-home-directory)). The recommended approach is to authenticate via environment variable. Interactive login flows (e.g. `claude /login`, `gh auth login`) may not work inside the sandbox.
 
 ### Environment variable tokens (recommended)
 
@@ -424,7 +425,7 @@ This section explains what the sandbox is and isn't designed to protect against,
 
 If the agent does something it shouldn't — runs a bad prompt, processes a malicious file, picks up a compromised dependency, or hallucinates a destructive command — the sandbox stops the damage from spreading outside the project directory. Concretely:
 
-- It can't read your SSH keys, browser sessions, password manager, other projects' source code, or anything else in your home directory outside the paths you explicitly expose.
+- It can't read your SSH keys, browser sessions, password manager, other projects' source code, or anything else in your home directory outside the paths you explicitly expose. This assumes you launch the agent from a project directory; launching from your home directory exposes all of it, and says so before it starts.
 - It can't delete or modify files outside the project directory and your declared `rwDirs` / `rwFiles`.
 - It can't reach the internet outside the domains you allow (when `allowedDomains` is set).
 - It can't talk to local services on your laptop — databases, dev servers, the SSH agent, other terminal windows, etc. — unless you explicitly allow host-local TCP ports with `allowedLocalPorts`.
@@ -440,8 +441,17 @@ The sandbox is an **isolation** boundary, not an **anonymity** boundary, and not
 - The agent can edit its own sandbox config. `flake.nix` lives inside the project directory and is writable from inside the sandbox. An agent could weaken its own restrictions for the *next* session. Changes don't take effect until you re-enter the dev shell, so it's worth reviewing `git diff` before you do.
 - No defense against root or kernel bugs. If something on your machine has already gained administrator-level access, or there's a deeper bug in the operating system itself, this sandbox can't stop it.
 
+### Launching from your home directory
+
+The launch directory is always read-write, so launching the agent from `$HOME` gives it your whole home directory: ssh keys, credential files, browser state, every other project. None of the masking described above applies in that session.
+
+This is allowed, because it follows from what the launch directory means, but sandbox will ask for your permission first.
+
+A launch directory *above* `$HOME` (`/`, `/home`, `/Users`) is refused outright. Those paths reach past your own home, and no confirmation covers that.
+
 ### Specific things worth being aware of
 
+- Launching from `$HOME` turns off home masking entirely — see [Launching from your home directory](#launching-from-your-home-directory). Everything below assumes you launch from a project directory.
 - Your username and home directory path are visible to the agent. This is unavoidable — the agent needs to know where `$HOME/.claude` resolves to. If your username is itself sensitive, this isn't the right tool.
 - All of `/nix/store` is readable, not just your allowed packages. Only execution is restricted to your allowlist. The Nix store is normally world-readable on any system, so this matches existing behavior, but it does mean the agent can list every package you've built.
 - `/tmp` is shared with the host. The agent can see (but not connect to) sockets and files other programs leave there. Don't put secrets in `/tmp` while the sandbox is running.
