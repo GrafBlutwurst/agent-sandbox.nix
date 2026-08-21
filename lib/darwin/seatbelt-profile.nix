@@ -7,6 +7,8 @@
 #   nixSupportRulesStr   — Nix daemon socket + full-store exec rules when
 #                          allowNix is set; empty string otherwise
 #   allowReadWriteExecStr — per-rwDir allow rules  (subpath, file-read/write/exec)
+#   allowUnixSocketStr    — per-writable-dir AF_UNIX bind/connect allows
+#                           (CWD + rwDirs); see the generator in default.nix
 #   allowFilesStr        — per-rwFile allow rules  (literal, file-read/write)
 #   allowReadOnlyStr      — per-roDir allow rules  (subpath, file-read*; no exec)
 #   allowFilesReadOnlyStr — per-roFile allow rules (literal, file-read*)
@@ -14,6 +16,7 @@
   networkRulesStr,
   nixSupportRulesStr,
   allowReadWriteExecStr,
+  allowUnixSocketStr,
   allowFilesStr,
   allowReadOnlyStr,
   allowFilesReadOnlyStr,
@@ -203,6 +206,15 @@
   ;; Explicit state directories & files
   ${allowReadWriteExecStr}
   ${allowFilesStr}
+
+  ;; AF_UNIX sockets scoped to the writable dirs above. Placed AFTER the
+  ;; network rules (last-match-wins) so it overrides the unrestricted-mode
+  ;; (deny network-outbound (remote unix-socket)); in filtered mode it is
+  ;; purely additive. Lets a tool bind/connect a socket it owns inside a
+  ;; dir it can already write (sbt/BSP, metals, nailgun); host sockets
+  ;; outside these dirs stay denied. See default.nix for the rationale
+  ;; and why this is darwin-only.
+  ${allowUnixSocketStr}
 
   ;; Read-only directories & files
   ${allowReadOnlyStr}

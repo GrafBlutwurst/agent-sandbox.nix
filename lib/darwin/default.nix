@@ -240,6 +240,31 @@ let
         (allow process-exec (subpath (param "${p.name}")))'') stateDirParams
   );
 
+  # UNIX-domain sockets scoped to already-writable directories. A socket a
+  # tool creates inside a dir it can already read+write is no new host
+  # exposure: the dangerous host sockets (ssh-agent, terminal-emulator
+  # IPC, per-user launchd listeners) all live OUTSIDE the caller's
+  # rwDirs, and the blanket deny in the network rules still covers them.
+  # Without this, a build server that uses a domain socket for its
+  # client/server protocol (sbt/BSP, metals, nailgun) fails at bind()
+  # with "Operation not permitted", even with the socket path inside an
+  # rwDir — because seatbelt mediates network-bind on AF_UNIX as a
+  # first-class socket operation, independent of the filesystem grant.
+  # This is darwin-only by construction: the linux backend restricts
+  # egress with a network namespace + nftables (IP layer) that AF_UNIX
+  # never traverses, and applies no seccomp filter to the socket
+  # syscalls, so a unix socket inside a bind-mounted rwDir already works
+  # there. Scope: CWD (the launch dir, always writable) + every rwDir.
+  seatbeltAllowUnixSockets = builtins.concatStringsSep "\n" (
+    map
+      (name:
+        # scheme
+        ''
+          (allow network-bind (local unix-socket (subpath (param "${name}"))))
+          (allow network-outbound (remote unix-socket (subpath (param "${name}"))))'')
+      ([ "CWD" ] ++ map (p: p.name) stateDirParams)
+  );
+
   seatbeltAllowFiles = builtins.concatStringsSep "\n" (
     map (p: ''(allow file-read* file-write* (literal (param "${p.name}")))'') stateFileParams
   );
@@ -507,6 +532,7 @@ let
     networkRulesStr = conditionalNetworkingParams.networkSeatbeltRulesStr;
     nixSupportRulesStr = nixSupportRulesStr;
     allowReadWriteExecStr = seatbeltAllowReadWriteExec;
+    allowUnixSocketStr = seatbeltAllowUnixSockets;
     allowFilesStr = seatbeltAllowFiles;
     allowReadOnlyStr = seatbeltAllowReadOnly;
     allowFilesReadOnlyStr = seatbeltAllowFilesReadOnly;
