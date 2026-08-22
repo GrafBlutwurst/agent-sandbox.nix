@@ -164,7 +164,6 @@ let
         fi
         echo "${warnPrefix} launching from your home directory ($HOME)." >&2
         echo "${warnPrefix} the launch directory is bound read-write, so the agent can read and modify everything under it — ssh keys, credentials, browser state, every other project. Your home is not masked in this session." >&2
-        echo "${warnPrefix} that includes the .git directory of every repo under your home. Only the repo you launch in is protected against git hook injection, so a write to any other repo's hooks or config runs code on your host the next time you use git there." >&2
         printf '%s' "${warnPrefix} continue? [y/N] " > /dev/tty
         read -r _HOME_CWD_REPLY < /dev/tty || _HOME_CWD_REPLY=""
         case "$_HOME_CWD_REPLY" in
