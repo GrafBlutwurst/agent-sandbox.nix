@@ -371,37 +371,7 @@ that the stub always waits, but that is weeks away.
 Acceptance: the suite passes, plus a new test that no
 `/private/tmp/sandbox-home.*` survives an unrestricted run.
 
-### 1. Refuse nested binds on macOS
-
-Not started. 1 file. 0.5 days.
-
-`mkSymlinkHomeMappingStr` plants each declared bind into the sandbox HOME in
-declaration order. `mkdir -p` follows a symlink planted earlier in the same loop
-out into the real home, and `ln -sfn` then unlinks a destination that resolves
-through it. Declaring one bind inside another destroys the user's real file at
-launch, with no agent involved. It is reachable from the git identity setup the
-README recommends: a `roFiles` entry for the git config under any `rwDirs` entry
-on an ancestor.
-
-Fix the damage, not the ergonomics. Before planting, walk each path component
-from the sandbox HOME down and refuse if any component is already a symlink or
-not a directory. Erroring out on a nested declaration is a behaviour change and
-belongs in the release notes, but it stops the data loss in around thirty lines.
-
-Resolving nesting properly, by registering every bind first, planting
-shallowest-first, and refusing only where two declarations genuinely disagree
-about the host path, is unit 5. It is far cheaper written against the ported
-code.
-
-This is thirty lines of bash that unit 3 rewrites in Python. Ship it anyway: it
-is live data loss reachable from a documented configuration, and the test
-outlives the implementation.
-
-Acceptance: the suite passes, plus a new test that a `roFiles` entry declared
-under an `rwDirs` ancestor refuses at launch and leaves the real host file
-byte-identical.
-
-### 2. Test housekeeping
+### 1. Test housekeeping
 
 Not started. Around 25 files, almost all mechanical. 1 day.
 
@@ -428,7 +398,7 @@ down.
 Acceptance: the suite passes, and passes identically on a machine whose ambient
 `<nixpkgs>` differs from the pin. Nothing under `lib/` changes.
 
-### 3. The port
+### 2. The port
 
 Not started. Most of `lib/`, plus new `build/` and `launch/`. 5 to 8 days.
 
@@ -495,7 +465,7 @@ configuration. That risk is accepted deliberately.
 Acceptance: the suite passes, mypy strict is clean, and the behaviour changes
 above are in the release notes.
 
-### 4. Test tiers
+### 3. Test tiers
 
 Not started. 6 files. 2 days.
 
@@ -520,7 +490,7 @@ almost nothing left to check, which is the intended end state.
 Acceptance: the suite passes, mypy and shellcheck run clean in CI, and the unit
 tier covers the four areas above on both platforms.
 
-### 5. Security backlog
+### 4. Security backlog
 
 Not started. Around 6 files. 2 days.
 
