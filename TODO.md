@@ -31,7 +31,8 @@ build (nix)     validate args, writeClosure, emit spec.json, emit env fragment
 
 launch          stub.sh
                   createSessionState spec.json  ->  prints session dir
-                    probe host, start proxy, render config, write artifacts
+                    probe host, create session state, start proxy,
+                      render config, write artifacts
                   exec bwrap --args / sandbox-exec
                   cleanupSessionState on EXIT
 ```
@@ -44,11 +45,11 @@ and why any move to real source files needs a hand-maintained data prelude. A
 spec built with `builtins.toJSON` carries its context, so store paths are just
 values.
 
-The rendering layer is pure. `sandbox_config_from_spec(spec, host)` takes the
-spec and the probed host state and returns the argv, the profile text and the
-files to create. It touches nothing. That layer holds the git protected-path
-enumeration, the symlink resolution and the seatbelt rule ordering, which is
-exactly the code that is currently untestable without launching a sandbox.
+The rendering layer is pure. `sandbox_config_from_spec(sandbox_spec, host_state, session_state)` takes the spec, the probed host state and the session state,
+and returns the argv, the profile text and the files to create. It touches
+nothing. That layer holds the git protected-path enumeration, the symlink
+resolution and the seatbelt rule ordering, which is exactly the code that is
+currently untestable without launching a sandbox.
 
 Nix keeps deciding what enters the closure. `sandbox-proxy` is referenced only
 from the restricted branch today, so an unrestricted wrapper does not carry the
@@ -122,6 +123,7 @@ Settled:
 |---|---|
 | `Spec` | the JSON Nix emits at build time |
 | `HostState` | what probing the host returns |
+| `SessionState` | what the launcher creates for this launch |
 | `SandboxConfig` | the pure result: argv, profile text, files to create |
 | `SessionDir` | the per-launch directory |
 | `sandbox_config_from_spec` | the pure render function |
@@ -137,6 +139,20 @@ the connotation.
 
 `SessionDir` rather than `ConfigDir` because the directory holds a pid, a
 cleanup list and two logs alongside the rendered config.
+
+`HostState` and `SessionState` are separate because they differ in kind.
+`HostState` is observed: the cwd, the git common dir, the real home, the tty,
+the nix daemon socket, the resolved symlink targets. It is read-only, and its
+members can legitimately be absent, since there may be no repository and no
+tty. `SessionState` is established: the session directory, the sandbox home,
+the passwd file, the CA bundle and the proxy port. Its members always exist,
+and every one of them has to be removed at exit, which makes it the same list
+the `cleanup` file holds.
+
+`SessionState` is established before render, not after. Its paths appear inside
+the rendered profile and the rendered argv, so the order in the diagram above is
+load-bearing: create the paths, render against them, then write the contents
+render returned.
 
 ## Behaviour changes
 
@@ -202,6 +218,9 @@ manifest that would otherwise pass between Python and bash.
   cleanup         paths to remove on exit
 ```
 
+The `cleanup` file is `SessionState` written down, so the trap removes what
+this launch created without Python reconstructing it.
+
 Root resolution: `AGENT_SANDBOX_LOG_DIR`, else `$XDG_STATE_HOME`, else
 `$HOME/.local/state`. Retention is 25 directories, pruned at launch, as a
 constant in the Python source rather than a `mkSandbox` argument. Timestamp
@@ -225,11 +244,6 @@ would hand the agent write access to its own logs.
 
 The wrapper prints nothing about the directory on success or failure.
 Discoverability is the README's job.
-
-The spec dump added in unit 3 is a separate thing and does not reopen this
-decision. It is a test facility that writes the resolved configuration and exits
-without launching. The rejected toggle was about users needing artifacts from a
-failure they have already hit.
 
 ## Security fixes, ahead of unit 0
 
@@ -309,7 +323,7 @@ and leaves almost nothing for unit 6 to unpick.
 
 Resolving nesting properly (register every bind first, plant shallowest-first,
 refuse only where two declarations genuinely disagree about the host path) is
-unit 9. It is far cheaper written against the restructured code.
+unit 5. It is far cheaper written against the restructured code.
 
 Scope on implementation: the walk also refuses when the bind's own destination
 in the sandbox HOME is already occupied. Without that, the reverse declaration
@@ -331,8 +345,7 @@ byte-identical.
 
 ## Units
 
-Each unit is one PR. Day estimates are rough. Golden files are excluded from
-file counts because they are not read in review.
+Each unit is one PR. Day estimates are rough.
 
 ### 0. Fix the macOS EXIT trap
 
@@ -352,7 +365,7 @@ ephemeral.
 Fix: drop `exec ` so both branches keep the wrapper shell as parent, which is
 what the restricted branch already does.
 
-Ships first and alone, so it can be backported. Unit 4 fixes it structurally, in
+Ships first and alone, so it can be backported. Unit 3 fixes it structurally, in
 that the stub always waits, but that is weeks away.
 
 Acceptance: the suite passes, plus a new test that no
@@ -377,10 +390,10 @@ belongs in the release notes, but it stops the data loss in around thirty lines.
 
 Resolving nesting properly, by registering every bind first, planting
 shallowest-first, and refusing only where two declarations genuinely disagree
-about the host path, is unit 6. It is far cheaper written against the ported
+about the host path, is unit 5. It is far cheaper written against the ported
 code.
 
-This is thirty lines of bash that unit 4 rewrites in Python. Ship it anyway: it
+This is thirty lines of bash that unit 3 rewrites in Python. Ship it anyway: it
 is live data loss reachable from a documented configuration, and the test
 outlives the implementation.
 
@@ -393,15 +406,13 @@ byte-identical.
 Not started. Around 25 files, almost all mechanical. 1 day.
 
 Three unrelated fixes, batched because they all touch the suite and none is
-worth its own PR. The first is a hard blocker for unit 3.
+worth its own PR.
 
 Pin the fixtures' nixpkgs. 21 of the 22 files in `tests/fixtures/` do
 `pkgs = import <nixpkgs> { }`, which is the ambient channel, not the flake's
 pinned `nixos-unstable`, and nothing in `tests/` or `.github/workflows/test.yml`
 sets `NIX_PATH`. The suite builds against whatever nixpkgs is on the machine, so
-a CI failure need not reproduce locally. Store paths and package versions land
-in the golden files, so unpinned fixtures produce different goldens on every
-machine.
+a CI failure need not reproduce locally.
 
 Make the harness contract explicit. `tests/lib.sh` calls a `run()` function that
 each test file defines as an undeclared global hook, and `expect_ok` invokes it
@@ -417,37 +428,7 @@ down.
 Acceptance: the suite passes, and passes identically on a machine whose ambient
 `<nixpkgs>` differs from the pin. Nothing under `lib/` changes.
 
-### 3. Golden capture
-
-Not started. 4 files plus around 22 goldens. 1 day.
-
-The safety net for unit 4, and much cheaper than building a dump mode into the
-bash that is about to be deleted.
-
-Put a shim on `PATH` in place of `bwrap` and `sandbox-exec` that writes its argv
-and, for macOS, copies the profile named by `-f`, then exits 0. Run the fixture
-matrix against it and check the output in. After unit 4, run the same fixtures
-against the Python launcher and diff.
-
-Also needed: a normalizer stripping store hashes, `mktemp` suffixes, the proxy
-port and `$SANDBOX_HOME`, or the goldens churn on every unrelated change. And a
-documented regenerate command.
-
-Compare as ordered sequences, never sorted. Order is load-bearing on both
-platforms: bubblewrap mount destinations overlay, and seatbelt is
-last-match-wins.
-
-The tier boundary must not blur. Goldens prove the wrapper passed the right
-arguments. Only end-to-end tests prove the kernel enforced them.
-`test-git-hook-injection`, `test-rodirs-symlink-hardening`,
-`test-user-folders-denied` and `test-nix-store-isolation` stay end-to-end
-permanently. Converting an enforcement test into a golden diff would look like a
-speedup and be a security regression in the suite.
-
-Acceptance: a golden exists for every fixture, and the regenerate command
-reproduces them byte-identically on a second machine.
-
-### 4. The port
+### 3. The port
 
 Not started. Most of `lib/`, plus new `build/` and `launch/`. 5 to 8 days.
 
@@ -475,6 +456,14 @@ variable-length lists had to be appended at runtime; generating the whole
 profile in Python removes the constraint. Also gone: the FIFO,
 the `exec 3<>` read-write trick and the `( sleep 5 && kill $$ ) &` timeout in
 `mkProxyStartupBashStr`, which become a `Popen` and a readline with a deadline.
+The deadline has to tell a slow start from a dead child by polling the process,
+which the bash timeout could not do.
+
+The port keeps flowing from the proxy to the launcher. `proxy/main.go` binds
+`:0` and prints the port, and Python reads that line into `SessionState`;
+nothing hands the proxy a port. That keeps the port owned by a listening socket
+from the moment it exists, so the `localhost:<port>` grant in the rendered
+profile cannot be claimed by anything else between rendering and exec.
 
 Correctness fixes that come free. `lib/linux/symlink-helpers.nix` builds
 `STATE_DIR_BINDS="$STATE_DIR_BINDS --bind ${dir} ${dir}"` and
@@ -494,13 +483,19 @@ Highest risk. Bubblewrap is order-sensitive about mount destinations, and
 `mkResolveFileBashStr` documents a case where no ordering of the binds works at
 all, because bwrap resolves mount destinations against its own intermediate root
 where an absolute symlink target does not exist. Some of the apparent repetition
-in the resolve generators may turn out to be load-bearing. The goldens from unit
-3 are what make this diffable rather than a matter of reasoning.
+in the resolve generators may turn out to be load-bearing.
 
-Acceptance: the suite passes, the golden diff against unit 3 is empty, mypy
-strict is clean, and the behaviour changes above are in the release notes.
+Order is load-bearing on both platforms, since bubblewrap mount destinations
+overlay and seatbelt is last-match-wins, so a reordering that preserves the rule
+set can still change what is enforced. There is no mechanical before-and-after
+diff to catch that. The end-to-end suite is what stands behind this unit, and it
+asserts outcomes at the paths it happens to check rather than the whole emitted
+configuration. That risk is accepted deliberately.
 
-### 5. Test tiers
+Acceptance: the suite passes, mypy strict is clean, and the behaviour changes
+above are in the release notes.
+
+### 4. Test tiers
 
 Not started. 6 files. 2 days.
 
@@ -512,18 +507,25 @@ Most of it runs on macOS against the Linux logic, since it is path manipulation.
 That is the point: a macOS maintainer currently has no way to execute the Linux
 code they are reviewing.
 
+The tier boundary must not blur. A unit test proves the renderer computed the
+right configuration. Only end-to-end tests prove the kernel enforced it.
+`test-git-hook-injection`, `test-rodirs-symlink-hardening`,
+`test-user-folders-denied` and `test-nix-store-isolation` stay end-to-end
+permanently. Converting an enforcement test into a unit test would look like a
+speedup and be a security regression in the suite.
+
 Add mypy strict and shellcheck to `.github/workflows/test.yml`. Shellcheck has
 almost nothing left to check, which is the intended end state.
 
 Acceptance: the suite passes, mypy and shellcheck run clean in CI, and the unit
 tier covers the four areas above on both platforms.
 
-### 6. Security backlog
+### 5. Security backlog
 
 Not started. Around 6 files. 2 days.
 
 Findings from https://github.com/ofekd/agent-sandbox.nix/commits/hardening/,
-deferred here because each lands in code unit 4 rewrites. Each has an issue
+deferred here because each lands in code unit 3 rewrites. Each has an issue
 filed; close them from here.
 
 Launcher-derived paths are not resolved to physical form before becoming
@@ -531,7 +533,7 @@ seatbelt rules, and the kernel resolves symlinks before the seatbelt hook, so
 rules against a path under `/tmp` or a symlinked home silently match nothing.
 
 The macOS profile grants blanket `file-write*` on `/tmp` and `/private/tmp`. The
-CA bundle, CA cert and passwd file move into the session directory under unit 4,
+CA bundle, CA cert and passwd file move into the session directory under unit 3,
 which removes most of the exposure, but `$SANDBOX_HOME` still lives under
 `/private/tmp` and a sandbox can still overwrite a concurrent session's copy.
 Deny the name patterns after the rwDirs and roDirs allows so no user config can
@@ -542,7 +544,7 @@ because seatbelt is last-match-wins and the read-only rules are emitted first.
 Nearly free once Python owns the whole profile and its ordering.
 
 The symlink walk continuing from an invented cursor when a hop cannot be
-resolved is fixed by unit 4 deleting the function. Confirm with a test rather
+resolved is fixed by unit 3 deleting the function. Confirm with a test rather
 than assuming.
 
 Plus the full nested-bind resolution deferred from unit 1.
@@ -551,8 +553,8 @@ Acceptance: the suite passes, plus one regression test per finding.
 
 ## Totals
 
-Around 12 to 15 days across 7 PRs. Units 0 through 3 are around 3 days and are
-all either live bug fixes or the safety net for unit 4.
+Around 11 to 14 days across 6 PRs. Units 0 through 2 are around 2 days and are
+all either live bug fixes or preparation for the port.
 
 ## Decisions still open
 
@@ -567,8 +569,7 @@ from `flake.lock`, a `--arg pkgs` threaded from `run-all.sh`, or a pinned
 Whether the pytest tier needs a nix devshell of its own, or rides on the
 existing one.
 
-Module names inside `launch/agent_sandbox/`, and the name of `tests/golden/`
-plus its regenerate command.
+Module names inside `launch/agent_sandbox/`.
 
 ## Deferred
 
