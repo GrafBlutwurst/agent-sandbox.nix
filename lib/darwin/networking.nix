@@ -42,6 +42,15 @@ if allowedDomains != null then
         ;; ssh-agent, etc.). The proxy speaks TCP, so nothing legitimate
         ;; needs UNIX-socket egress.
         (allow network-bind (local ip "localhost:*"))
+        ;; Loopback INBOUND — the missing half of the localhost bind
+        ;; above: without it a sandboxed listener can bind() but never
+        ;; accept an incoming connection, which breaks any localhost
+        ;; callback flow. Hit live by Claude Code's /login OAuth
+        ;; callback (the host browser redirects to a listener inside the
+        ;; sandbox — same loopback on darwin, no netns). Scoped to
+        ;; loopback only: no external interfaces become reachable, and
+        ;; outbound stays pinned to the proxy port.
+        (allow network-inbound (local ip "localhost:*"))
         (allow system-socket)
         ${darwinAllowedLocalPortsRulesStr}
       '';
