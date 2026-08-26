@@ -64,6 +64,22 @@ let
         builtins.throw "${errorPrefix} allowedLocalPorts must only contain integers from 1 to 65535. Use null to allow all host-local TCP ports. Invalid port(s): ${builtins.toJSON invalidPorts}"
       else
         pkgs.lib.unique allowedLocalPorts;
+  # allowUnixSockets gates AF_UNIX as one capability on both platforms, and
+  # allowNix cannot be granted without it: on Linux the nix daemon is reached
+  # over an AF_UNIX socket, and the seccomp filter that enforces the default
+  # denial works on the address family, so it cannot exempt a single path
+  # (classic BPF cannot dereference the sockaddr). The error is raised on
+  # macOS too, where the daemon socket is granted by path and the combination
+  # would technically work, because the two platforms must not accept
+  # different configurations.
+  validateAllowUnixSockets =
+    { allowNix, allowUnixSockets }:
+    if !(builtins.isBool allowUnixSockets) then
+      builtins.throw "${errorPrefix} allowUnixSockets must be a boolean"
+    else if allowNix && !allowUnixSockets then
+      builtins.throw "${errorPrefix} allowNix = true requires allowUnixSockets = true: the nix daemon is reached over an AF_UNIX socket, and the sandbox denies AF_UNIX sockets by default. Setting allowUnixSockets = true also lets the agent create and connect to UNIX-domain sockets in directories it can write (the launch directory and rwDirs)."
+    else
+      allowUnixSockets;
   assertNoLegacyArgs =
     {
       restrictNetwork,
@@ -161,9 +177,10 @@ let
       errorPrefix = errorPrefix;
     };
 
-  # The wrapper itself. Both seqs are what make the validation an eval-time
-  # error: nothing else forces them, so without them a deprecated argument or
-  # an out-of-range port would only be discovered when the agent is launched.
+  # The wrapper itself. The seqs are what make the validation an eval-time
+  # error: nothing else forces them, so without them a deprecated argument, an
+  # out-of-range port or an allowNix/allowUnixSockets conflict would only be
+  # discovered when the agent is launched.
   mkWrapper =
     {
       outName,
@@ -171,16 +188,19 @@ let
       buildSpec,
       legacyArgs,
       allowedLocalPorts,
+      allowUnixSockets,
     }:
     builtins.seq (assertNoLegacyArgs legacyArgs) (
       builtins.seq allowedLocalPorts (
-        pkgs.runCommand outName { } ''
-          mkdir -p $out/bin
-          install -m755 ${stub} $out/bin/${outName}
-        ''
-        // {
-          buildSpec = buildSpec;
-        }
+        builtins.seq allowUnixSockets (
+          pkgs.runCommand outName { } ''
+            mkdir -p $out/bin
+            install -m755 ${stub} $out/bin/${outName}
+          ''
+          // {
+            buildSpec = buildSpec;
+          }
+        )
       )
     );
 in
@@ -190,6 +210,7 @@ in
   sandboxProxy = sandboxProxy;
   assertNoLegacyArgs = assertNoLegacyArgs;
   validateAllowedLocalPorts = validateAllowedLocalPorts;
+  validateAllowUnixSockets = validateAllowUnixSockets;
   preEntryScript = preEntryScript;
   launcherPackage = launcherPackage;
   mkImplicitPackages = mkImplicitPackages;

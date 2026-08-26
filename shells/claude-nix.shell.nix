@@ -19,6 +19,8 @@ let
     outName = "claude-sandboxed";
     allowedPackages = agent-sandbox.commonTools;
     allowNix = true;
+    # Required with allowNix: the daemon is reached over an AF_UNIX socket.
+    allowUnixSockets = true;
     rwDirs = [
       "$HOME/.claude"
       # Client state. Without these, every invocation re-fetches the

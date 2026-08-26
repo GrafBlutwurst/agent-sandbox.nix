@@ -10,7 +10,7 @@ from pathlib import Path
 
 from launcher.lib.build_spec import SandboxBuildSpecDarwin
 from launcher.lib.constants import CA_BUNDLE, CA_CERT, PASSWD, SEATBELT_PROFILE
-from launcher.lib.host_state import GitState, HostStateDarwin
+from launcher.lib.host_state import DeclaredDir, GitState, HostStateDarwin
 from launcher.lib.launch_config.darwin import seatbelt
 from launcher.lib.launch_config.shared import SandboxLaunchConfig, get_usable_git_state
 from launcher.lib.session_state import SessionStateDarwin
@@ -85,6 +85,21 @@ def _get_home_symlinks(
             continue
         planted.append((sandbox_home / path.relative_to(host.real_home), path))
     return planted
+
+
+def _get_unix_socket_dirs(host: HostStateDarwin) -> list[Path]:
+    """The launch directory plus every declared rw directory, in that order.
+
+    The scope of allowUnixSockets. rw files are excluded because a socket
+    cannot be declared ahead of time — bind() refuses an existing path — and
+    ro directories because bind() there is a write in every sense that
+    matters. See seatbelt.unix_sockets for why /tmp stays out.
+    """
+    dirs = [host.cwd]
+    for declared in host.declared:
+        if isinstance(declared, DeclaredDir) and declared.mode == "rw":
+            dirs.append(declared.expanded_path)
+    return dirs
 
 
 def _get_passwd(host: HostStateDarwin) -> str:
@@ -171,6 +186,10 @@ def _get_profile_lines(
     # unix-socket deny in open mode.
     if host.nix_daemon_socket is not None:
         lines += seatbelt.nix_support(host.nix_daemon_socket)
+
+    # Also after the network rules, for the same last-match reason.
+    if spec.allow_unix_sockets:
+        lines += seatbelt.unix_sockets(_get_unix_socket_dirs(host))
 
     lines += seatbelt.device_nodes(host.tty)
     lines += seatbelt.SYSTEM_LIBRARIES

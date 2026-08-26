@@ -13,6 +13,7 @@
   binName,
   sandboxPath,
   allowNix,
+  allowUnixSockets,
   rwDirs,
   rwFiles,
   roDirs,
@@ -75,6 +76,7 @@ let
     out_name = outName;
     sandbox_path = sandboxPath;
     allow_nix = allowNix;
+    allow_unix_sockets = allowUnixSockets;
     # Unexpanded, exactly as written in the caller's Nix. They carry $VAR and ~
     # and the launcher expands them, so they are not paths yet.
     rw_dirs = rwDirs;

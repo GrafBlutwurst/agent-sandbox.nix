@@ -81,6 +81,10 @@ class SandboxBuildSpec:
     out_name: str
     sandbox_path: str  # $PATH not Path
     allow_nix: bool
+    # Nix guarantees allow_nix implies this, on both platforms: the Linux
+    # enforcement is a filter on the AF_UNIX address family, which cannot
+    # exempt the daemon socket's path.
+    allow_unix_sockets: bool
     rw_dirs: tuple[str, ...]
     rw_files: tuple[str, ...]
     ro_dirs: tuple[str, ...]
@@ -125,6 +129,7 @@ class _CommonBuildSpec(TypedDict):
     out_name: str
     sandbox_path: str
     allow_nix: bool
+    allow_unix_sockets: bool
     rw_dirs: tuple[str, ...]
     rw_files: tuple[str, ...]
     ro_dirs: tuple[str, ...]
@@ -157,6 +162,7 @@ def _common_build_spec(data: Mapping[str, Any]) -> _CommonBuildSpec:
         out_name=data["out_name"],
         sandbox_path=data["sandbox_path"],
         allow_nix=data["allow_nix"],
+        allow_unix_sockets=data["allow_unix_sockets"],
         rw_dirs=tuple(data["rw_dirs"]),
         rw_files=tuple(data["rw_files"]),
         ro_dirs=tuple(data["ro_dirs"]),

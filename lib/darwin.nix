@@ -25,6 +25,7 @@
   outName,
   allowedPackages,
   allowNix ? false,
+  allowUnixSockets ? false,
   rwDirs ? [ ],
   rwFiles ? [ ],
   roDirs ? [ ],
@@ -61,6 +62,11 @@ let
 
   validatedAllowedLocalPorts = shared.validateAllowedLocalPorts allowedLocalPorts;
 
+  validatedAllowUnixSockets = shared.validateAllowUnixSockets {
+    allowNix = allowNix;
+    allowUnixSockets = allowUnixSockets;
+  };
+
   sandboxBuildSpec = import ./spec.nix
     {
       pkgs = pkgs;
@@ -79,6 +85,7 @@ let
       roFiles = roFiles;
       env = env;
       allowedLocalPorts = validatedAllowedLocalPorts;
+      allowUnixSockets = validatedAllowUnixSockets;
       closurePathsFile = closurePathsFile;
       preEntryScript = shared.preEntryScript;
       allowedDomains = allowedDomains;
@@ -107,4 +114,5 @@ shared.mkWrapper {
     stateFiles = stateFiles;
   };
   allowedLocalPorts = validatedAllowedLocalPorts;
+  allowUnixSockets = validatedAllowUnixSockets;
 }

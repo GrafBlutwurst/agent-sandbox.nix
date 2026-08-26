@@ -412,6 +412,44 @@ def nix_support(daemon_socket: Path) -> list[str]:
     ]
 
 
+def unix_sockets(writable_dirs: Sequence[Path]) -> list[str]:
+    """AF_UNIX bind and connect, scoped to directories the sandbox can write.
+
+    Emitted only with allowUnixSockets. Seatbelt mediates network-bind and
+    network-outbound on a unix socket as operations independent of the
+    filesystem grants, so a tool whose client and server rendezvous over a
+    socket inside a directory it can already write (sbt/BSP, metals, nailgun)
+    fails at bind() without these. Linux has no per-path gate — a pathname
+    socket is reachable exactly when its path is visible and writable in the
+    mount namespace — so the launch directory plus the declared rw
+    directories is the closest expressible match to what allowUnixSockets
+    grants there.
+
+    Deliberately not extended to every writable path: /tmp and /private/tmp
+    hold host sockets (per-user launchd listeners among them), and granting
+    them would hand over exactly the sockets the blanket deny exists to
+    protect. A socket the sandbox creates in a directory it can already
+    read and write is no new host exposure; the dangerous host sockets
+    (ssh-agent, terminal-emulator IPC) live outside these directories and
+    stay denied.
+
+    Assembled after the network rules, so the allows outrank open mode's
+    blanket (deny network-outbound (remote unix-socket)) by last-match-wins;
+    in filtered mode they are purely additive over deny-default.
+    """
+    if not writable_dirs:
+        return []
+    lines = ["", ";; AF_UNIX sockets — scoped to writable dirs (allowUnixSockets)"]
+    for directory in writable_dirs:
+        lines.append(
+            f'(allow network-bind (local unix-socket (subpath "{directory}")))'
+        )
+        lines.append(
+            f'(allow network-outbound (remote unix-socket (subpath "{directory}")))'
+        )
+    return lines
+
+
 def _local_port_rules(allowed_local_ports: Sequence[int] | None) -> list[str]:
     """allowedLocalPorts is TCP-only; None means every host-local TCP port."""
     if allowed_local_ports is None:

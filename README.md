@@ -28,6 +28,7 @@ Everything else is denied. `$HOME` is an ephemeral writable tmpfs that disappear
   - [Network restrictions](#network-restrictions)
     - [Domain and internet access](#domain-and-internet-access)
     - [Host-local ports](#host-local-ports)
+  - [UNIX-domain sockets](#unix-domain-sockets)
   - [Supported agents](#supported-agents)
 - [Authentication](#authentication)
   - [Environment variable tokens (recommended)](#environment-variable-tokens-recommended)
@@ -124,7 +125,8 @@ If you want to keep the original command name as the alias, change the `outName`
 | `rwFiles` | no | Individual files the agent can read/write |
 | `roDirs` | no | Directories the agent can read but not write (e.g. signed binaries, reference source trees, secret stores) |
 | `roFiles` | no | Individual files the agent can read but not write (e.g. `~/.config/git/config` for git identity — see [Git identity](#git-identity)) |
-| `allowNix` | no | If `true`, expose the host's `nix-daemon` socket and the full Nix store so the agent can run `nix build`, `nix run`, `nix develop`, etc. `pkgs.nix` is added to PATH automatically. Defaults to `false`. See [Using Nix inside the sandbox](#using-nix-inside-the-sandbox). |
+| `allowNix` | no | If `true`, expose the host's `nix-daemon` socket and the full Nix store so the agent can run `nix build`, `nix run`, `nix develop`, etc. `pkgs.nix` is added to PATH automatically. Requires `allowUnixSockets = true`. Defaults to `false`. See [Using Nix inside the sandbox](#using-nix-inside-the-sandbox). |
+| `allowUnixSockets` | no | If `true`, allow the agent to create and connect to UNIX-domain (AF_UNIX) sockets in directories it can write — the launch directory and `rwDirs`. Needed by build tools that rendezvous over a domain socket (sbt/BSP, metals, nailgun). Defaults to `false`. See [UNIX-domain sockets](#unix-domain-sockets). |
 | `env` | no | Additional environment variables as an attrset |
 | `allowedDomains` | no | Limits which domains the sandbox can reach. Leave unset for open internet. Accepts a list of domains (all methods allowed), or an attrset mapping each domain to `"*"` or a list of HTTP methods. `[ ]` blocks all internet access. |
 | `allowedLocalPorts` | no | Host-local TCP ports the sandbox may reach. Defaults to `[ ]`. Set to `null` to allow all host-local TCP ports. Otherwise, entries must be integers from `1` to `65535`. |
@@ -199,6 +201,18 @@ allowedLocalPorts = [ 3000 5432 ];
 ```
 
 Set `allowedLocalPorts = null;` to allow all host-local TCP ports. Keep explicit port lists as narrow as possible; broad access can expose host-local services.
+
+### UNIX-domain sockets
+
+UNIX-domain (AF_UNIX) sockets are denied by default. Host sockets are how a sandboxed process would reach your SSH agent, your terminal emulator's IPC, or other per-user services, so nothing may create or connect to one unless you opt in:
+
+```nix
+allowUnixSockets = true;
+```
+
+With the flag set, the agent can create and connect to UNIX-domain sockets in directories it can already write — the launch directory and anything in `rwDirs`. This is what build tools that rendezvous over a domain socket need (sbt/BSP, metals, nailgun). Host sockets outside those directories stay unreachable on macOS, where the sandbox can scope socket access by path.
+
+`allowNix = true` requires `allowUnixSockets = true`, because the nix daemon is reached over a UNIX-domain socket.
 
 ### Supported agents
 
@@ -332,7 +346,7 @@ Everything else stays writable, so commits, fetches, branch switching and histor
 
 ## Using Nix inside the sandbox
 
-Set `allowNix = true` to let the agent invoke nix commands from inside the sandbox. The agent is given access to the host's nix daemon and the full nix store. `pkgs.nix` is added to the agent's PATH automatically — you don't need to put it in `allowedPackages`.
+Set `allowNix = true` to let the agent invoke nix commands from inside the sandbox. The agent is given access to the host's nix daemon and the full nix store. `pkgs.nix` is added to the agent's PATH automatically — you don't need to put it in `allowedPackages`. Because the daemon is reached over a UNIX-domain socket, `allowNix = true` requires `allowUnixSockets = true` — see [UNIX-domain sockets](#unix-domain-sockets).
 
 What you need to configure:
 
