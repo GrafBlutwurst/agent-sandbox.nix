@@ -23,6 +23,7 @@ from launcher.lib.host_state import (
     HostStateDarwin,
     HostStateLinux,
 )
+from launcher.lib.launch_config.linux.seccomp import SUPPORTED_MACHINES
 
 _AFFIRMATIVE = frozenset({"y", "Y", "yes", "Yes", "YES"})
 
@@ -222,6 +223,23 @@ def get_launch_refusals(
                 f"{_get_declared_label(declared)} but {problem}"
                 f"{_origin_suffix(declared)}"
             )
+
+    # Fail closed: the default denial of AF_UNIX is a security control, so a
+    # machine the filter cannot be built for refuses to launch rather than
+    # launching without it.
+    if (
+        spec.platform == "linux"
+        and isinstance(host, HostStateLinux)
+        and not spec.allow_unix_sockets
+        and host.machine not in SUPPORTED_MACHINES
+    ):
+        supported = ", ".join(sorted(SUPPORTED_MACHINES))
+        refusals.append(
+            f"AF_UNIX sockets are denied by default via a seccomp filter, and "
+            f"no filter is available for this machine ({host.machine}; "
+            f"supported: {supported}). Set allowUnixSockets = true to launch "
+            f"without the denial."
+        )
 
     if _is_cwd_above_home(host):
         refusals.append(

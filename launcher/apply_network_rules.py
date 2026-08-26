@@ -19,7 +19,7 @@ import os
 import subprocess
 import sys
 
-from launcher.lib.constants import ERROR_PREFIX
+from launcher.lib.constants import ERROR_PREFIX, SECCOMP_FD
 
 
 def _run(argv: list[str], failure: str, stdin: str | None = None) -> None:
@@ -62,6 +62,25 @@ def main() -> None:
         "could not load the sandbox nftables ruleset",
         stdin="\n".join(network["rules"]) + "\n",
     )
+
+    # The AF_UNIX-denying filter, left open on SECCOMP_FD for the --seccomp
+    # argument down the chain. This process is the only one that can open a
+    # descriptor bubblewrap inherits: pasta does not pass one to its child.
+    # Failing to arm a security control is fatal, like everything above.
+    if network["seccomp_filter"] is not None:
+        try:
+            fd = os.open(network["seccomp_filter"], os.O_RDONLY)
+        except OSError as error:
+            raise SystemExit(
+                f"{ERROR_PREFIX} could not open the seccomp filter "
+                f"{network['seccomp_filter']}: {error}"
+            ) from error
+        if fd != SECCOMP_FD:
+            os.dup2(fd, SECCOMP_FD)
+            os.close(fd)
+        # dup2 leaves the new descriptor inheritable, but not when source and
+        # target coincide, so it is forced rather than assumed.
+        os.set_inheritable(SECCOMP_FD, True)
 
     os.execv(command[0], command)
 

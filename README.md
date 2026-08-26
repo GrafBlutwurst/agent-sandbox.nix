@@ -210,7 +210,7 @@ UNIX-domain (AF_UNIX) sockets are denied by default. Host sockets are how a sand
 allowUnixSockets = true;
 ```
 
-With the flag set, the agent can create and connect to UNIX-domain sockets in directories it can already write — the launch directory and anything in `rwDirs`. This is what build tools that rendezvous over a domain socket need (sbt/BSP, metals, nailgun). Host sockets outside those directories stay unreachable on macOS, where the sandbox can scope socket access by path.
+With the flag set, the agent can create and connect to UNIX-domain sockets in directories it can already write — the launch directory and anything in `rwDirs`. This is what build tools that rendezvous over a domain socket need (sbt/BSP, metals, nailgun). Host sockets outside those directories stay unreachable on macOS, where the sandbox can scope socket access by path; Linux can only gate the address family as a whole, so there the flag disables the gate and reachability falls back to what the mount namespace exposes (which is the same set of writable directories, plus anything else you declared).
 
 `allowNix = true` requires `allowUnixSockets = true`, because the nix daemon is reached over a UNIX-domain socket.
 
@@ -487,6 +487,8 @@ A launch directory *above* `$HOME` (`/`, `/home`, `/Users`) is refused outright.
 ### Linux vs macOS
 
 Both platforms enforce the same default protections. The one practical difference is localhost: on Linux, bubblewrap gives the sandbox its own network namespace, so services started inside the sandbox can reach each other on any localhost port freely. On macOS, `sandbox-exec` shares localhost with the host, so sandbox-internal localhost communication requires the port to be listed in `allowedLocalPorts` or all host-local ports to be allowed with `allowedLocalPorts = null;` — the same access also opens those host-local ports.
+
+With `allowUnixSockets = true` the platforms also differ in how far the grant reaches — macOS scopes it to the writable directories by path, Linux to whatever the mount namespace exposes — see [UNIX-domain sockets](#unix-domain-sockets).
 
 ### Is this the right tool for me?
 

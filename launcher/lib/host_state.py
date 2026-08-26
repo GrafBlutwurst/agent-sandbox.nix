@@ -108,6 +108,9 @@ class HostState:
 class HostStateLinux(HostState):
     resolv_conf_names_loopback: bool
     systemd_resolv_conf: Path | None
+    # uname -m, for the seccomp filter: the BPF program checks the audit arch
+    # and carries the syscall number, both of which differ per machine.
+    machine: str
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -534,6 +537,7 @@ def read_host_state_linux(spec: SandboxBuildSpecLinux) -> HostStateLinux:
         **_common_host_state(spec),
         resolv_conf_names_loopback=_resolv_conf_names_loopback(),
         systemd_resolv_conf=systemd_resolv_conf,
+        machine=os.uname().machine,
     )
 
 

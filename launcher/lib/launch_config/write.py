@@ -26,6 +26,7 @@ from launcher.lib.constants import (
     PASSWD,
     PROXY_PID,
     SEATBELT_PROFILE,
+    SECCOMP_FILTER,
 )
 from launcher.lib.launch_config.darwin.compute import SandboxLaunchConfigDarwin
 from launcher.lib.launch_config.linux.compute import SandboxLaunchConfigLinux
@@ -91,6 +92,11 @@ def write_launch_config_linux(
     # file because the bind list on its own is what you want to look at when a
     # path is missing inside the sandbox.
     _write_nul_separated(session.session_dir / BWRAP_ARGS, config.bwrap_args)
+
+    # Bytes: it is a compiled BPF program, read back by apply_network_rules
+    # at the path network.json carries.
+    if config.seccomp_program is not None:
+        (session.session_dir / SECCOMP_FILTER).write_bytes(config.seccomp_program)
     (session.session_dir / NETWORK).write_text(
         json.dumps(asdict(config.network), default=_as_json_value, indent=2) + "\n",
         encoding="utf-8",
