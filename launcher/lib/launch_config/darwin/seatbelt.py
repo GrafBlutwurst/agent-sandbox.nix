@@ -412,7 +412,11 @@ def nix_support(daemon_socket: Path) -> list[str]:
     ]
 
 
-def unix_sockets(writable_dirs: Sequence[Path]) -> list[str]:
+def unix_sockets(
+    writable_dirs: Sequence[Path],
+    nested_ro_dirs: Sequence[Path],
+    nested_ro_files: Sequence[Path],
+) -> list[str]:
     """AF_UNIX bind and connect, scoped to directories the sandbox can write.
 
     Emitted only with allowUnixSockets. Seatbelt mediates network-bind and
@@ -433,6 +437,19 @@ def unix_sockets(writable_dirs: Sequence[Path]) -> list[str]:
     (ssh-agent, terminal-emulator IPC) live outside these directories and
     stay denied.
 
+    The nested_ro paths are the declared read-only paths sitting inside the
+    writable scope — in practice inside the launch directory, since a
+    declaration nested inside another declaration is refused at launch. They
+    get explicit denies after the allows, or the enclosing subpath allow
+    would let the sandbox bind and connect sockets in a directory declared
+    read-only. That the same directory currently accepts plain file writes
+    is issue #84, and its fix — explicit file-write denies — would not
+    touch these socket operations, so they are denied here rather than left
+    to it. Only the nested paths, not every ro declaration: a blanket deny
+    would also fire when a writable dir sits inside a read-only one
+    (launching from a subdirectory of an roDir), where the writable grant
+    must win.
+
     Assembled after the network rules, so the allows outrank open mode's
     blanket (deny network-outbound (remote unix-socket)) by last-match-wins;
     in filtered mode they are purely additive over deny-default.
@@ -446,6 +463,18 @@ def unix_sockets(writable_dirs: Sequence[Path]) -> list[str]:
         )
         lines.append(
             f'(allow network-outbound (remote unix-socket (subpath "{directory}")))'
+        )
+    if nested_ro_dirs or nested_ro_files:
+        lines.append(";; ...except the declared read-only paths nested inside")
+    for directory in nested_ro_dirs:
+        lines.append(f'(deny network-bind (local unix-socket (subpath "{directory}")))')
+        lines.append(
+            f'(deny network-outbound (remote unix-socket (subpath "{directory}")))'
+        )
+    for file in nested_ro_files:
+        lines.append(f'(deny network-bind (local unix-socket (path-literal "{file}")))')
+        lines.append(
+            f'(deny network-outbound (remote unix-socket (path-literal "{file}")))'
         )
     return lines
 

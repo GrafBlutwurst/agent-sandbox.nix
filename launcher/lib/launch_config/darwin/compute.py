@@ -87,19 +87,39 @@ def _get_home_symlinks(
     return planted
 
 
-def _get_unix_socket_dirs(host: HostStateDarwin) -> list[Path]:
-    """The launch directory plus every declared rw directory, in that order.
+def _get_unix_socket_scope(
+    host: HostStateDarwin,
+) -> tuple[list[Path], list[Path], list[Path]]:
+    """The socket scope: writable dirs, plus the ro declarations nested inside.
 
-    The scope of allowUnixSockets. rw files are excluded because a socket
-    cannot be declared ahead of time — bind() refuses an existing path — and
-    ro directories because bind() there is a write in every sense that
-    matters. See seatbelt.unix_sockets for why /tmp stays out.
+    Writable is the launch directory plus every declared rw directory, in
+    that order. rw files are excluded because a socket cannot be declared
+    ahead of time — bind() refuses an existing path — and ro directories
+    because bind() there is a write in every sense that matters. See
+    seatbelt.unix_sockets for why /tmp stays out.
+
+    The ro declarations found inside the writable dirs are returned so
+    seatbelt.unix_sockets can deny them back out of the enclosing subpath
+    allows; the rationale, and why only the nested ones, lives there.
     """
-    dirs = [host.cwd]
+    writable = [host.cwd]
     for declared in host.declared:
         if isinstance(declared, DeclaredDir) and declared.mode == "rw":
-            dirs.append(declared.expanded_path)
-    return dirs
+            writable.append(declared.expanded_path)
+
+    nested_ro_dirs: list[Path] = []
+    nested_ro_files: list[Path] = []
+    for declared in host.declared:
+        if declared.mode != "ro":
+            continue
+        path = declared.expanded_path
+        if not any(path.is_relative_to(directory) for directory in writable):
+            continue
+        if isinstance(declared, DeclaredDir):
+            nested_ro_dirs.append(path)
+        else:
+            nested_ro_files.append(path)
+    return writable, nested_ro_dirs, nested_ro_files
 
 
 def _get_passwd(host: HostStateDarwin) -> str:
@@ -182,14 +202,18 @@ def _get_profile_lines(
             session.proxy.port, spec.allowed_local_ports
         )
 
+    # After the network rules, so the allows outrank open mode's blanket
+    # unix-socket deny by last-match. Before nix_support, so the nested-ro
+    # denies inside this section can never shadow the daemon socket allow,
+    # should an roDir enclosing the daemon socket ever be declared.
+    if spec.allow_unix_sockets:
+        writable, nested_ro_dirs, nested_ro_files = _get_unix_socket_scope(host)
+        lines += seatbelt.unix_sockets(writable, nested_ro_dirs, nested_ro_files)
+
     # After the network rules, so the socket allow outranks the blanket
     # unix-socket deny in open mode.
     if host.nix_daemon_socket is not None:
         lines += seatbelt.nix_support(host.nix_daemon_socket)
-
-    # Also after the network rules, for the same last-match reason.
-    if spec.allow_unix_sockets:
-        lines += seatbelt.unix_sockets(_get_unix_socket_dirs(host))
 
     lines += seatbelt.device_nodes(host.tty)
     lines += seatbelt.SYSTEM_LIBRARIES

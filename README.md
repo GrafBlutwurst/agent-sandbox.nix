@@ -210,7 +210,7 @@ UNIX-domain (AF_UNIX) sockets are denied by default. Host sockets are how a sand
 allowUnixSockets = true;
 ```
 
-With the flag set, the agent can create and connect to UNIX-domain sockets in directories it can already write — the launch directory and anything in `rwDirs`. This is what build tools that rendezvous over a domain socket need (sbt/BSP, metals, nailgun). Host sockets outside those directories stay unreachable on macOS, where the sandbox can scope socket access by path; Linux can only gate the address family as a whole, so there the flag disables the gate and reachability falls back to what the mount namespace exposes (which is the same set of writable directories, plus anything else you declared).
+With the flag set, the agent can create and connect to UNIX-domain sockets in directories it can already write — the launch directory and anything in `rwDirs`. This is what build tools that rendezvous over a domain socket need (sbt/BSP, metals, nailgun). Host sockets outside those directories stay unreachable on macOS, where the sandbox can scope socket access by path; a read-only path declared inside the launch directory is excluded from the scope as well. Linux can only gate the address family as a whole, so there the flag disables the gate and reachability falls back to what the mount namespace exposes (which is the same set of writable directories, plus anything else you declared).
 
 `allowNix = true` requires `allowUnixSockets = true`, because the nix daemon is reached over a UNIX-domain socket.
 
