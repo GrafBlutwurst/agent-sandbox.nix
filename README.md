@@ -204,13 +204,7 @@ Set `allowedLocalPorts = null;` to allow all host-local TCP ports. Keep explicit
 
 ### UNIX-domain sockets
 
-UNIX-domain (AF_UNIX) sockets are denied by default. Host sockets are how a sandboxed process would reach your SSH agent, your terminal emulator's IPC, or other per-user services, so nothing may create or connect to one unless you opt in:
-
-```nix
-allowUnixSockets = true;
-```
-
-With the flag set, the agent can create and connect to UNIX-domain sockets in directories it can already write — the launch directory and anything in `rwDirs`. This is what build tools that rendezvous over a domain socket need (sbt/BSP, metals, nailgun). Host sockets outside those directories stay unreachable on macOS, where the sandbox can scope socket access by path; a read-only path declared inside the launch directory is excluded from the scope as well. Linux can only gate the address family as a whole, so there the flag disables the gate and reachability falls back to what the mount namespace exposes (which is the same set of writable directories, plus anything else you declared).
+UNIX-domain (AF_UNIX) sockets are denied by default: host sockets are how a sandboxed process would reach your SSH agent or other per-user services. Set `allowUnixSockets = true` to opt in — build tools that rendezvous over a domain socket (sbt/BSP, metals, nailgun) need it. Access then follows the filesystem grants on both platforms: paths the agent can write (the launch directory, `rwDirs`) allow creating and connecting to sockets, read-only paths (`roDirs`, `roFiles`) allow connecting only.
 
 `allowNix = true` requires `allowUnixSockets = true`, because the nix daemon is reached over a UNIX-domain socket.
 
@@ -487,8 +481,6 @@ A launch directory *above* `$HOME` (`/`, `/home`, `/Users`) is refused outright.
 ### Linux vs macOS
 
 Both platforms enforce the same default protections. The one practical difference is localhost: on Linux, bubblewrap gives the sandbox its own network namespace, so services started inside the sandbox can reach each other on any localhost port freely. On macOS, `sandbox-exec` shares localhost with the host, so sandbox-internal localhost communication requires the port to be listed in `allowedLocalPorts` or all host-local ports to be allowed with `allowedLocalPorts = null;` — the same access also opens those host-local ports.
-
-With `allowUnixSockets = true` the platforms also differ in how far the grant reaches — macOS scopes it to the writable directories by path, Linux to whatever the mount namespace exposes — see [UNIX-domain sockets](#unix-domain-sockets).
 
 ### Is this the right tool for me?
 
