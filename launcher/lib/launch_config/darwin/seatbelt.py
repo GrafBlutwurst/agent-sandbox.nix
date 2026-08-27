@@ -414,41 +414,44 @@ def nix_support(daemon_socket: Path) -> list[str]:
 
 def unix_sockets(
     writable_dirs: Sequence[Path],
+    connect_dirs: Sequence[Path],
+    connect_files: Sequence[Path],
     nested_ro_dirs: Sequence[Path],
     nested_ro_files: Sequence[Path],
 ) -> list[str]:
-    """AF_UNIX bind and connect, scoped to directories the sandbox can write.
+    """AF_UNIX access mirroring the filesystem grants: rw binds, ro connects.
 
     Emitted only with allowUnixSockets. Seatbelt mediates network-bind and
     network-outbound on a unix socket as operations independent of the
     filesystem grants, so a tool whose client and server rendezvous over a
     socket inside a directory it can already write (sbt/BSP, metals, nailgun)
-    fails at bind() without these. Linux has no per-path gate — a pathname
-    socket is reachable exactly when its path is visible and writable in the
-    mount namespace — so the launch directory plus the declared rw
-    directories is the closest expressible match to what allowUnixSockets
-    grants there.
+    fails at bind() without these. Linux has no per-path gate — with the flag
+    set, a pathname socket can be created wherever the mount namespace is
+    writable and connected to wherever it is visible, because a read-only
+    mount blocks inode creation but exempts connect() as a special-file
+    operation. These rules express the same split: writable_dirs get bind and
+    connect, the declared read-only paths (connect_dirs, connect_files) get
+    connect only.
 
     Deliberately not extended to every writable path: /tmp and /private/tmp
     hold host sockets (per-user launchd listeners among them), and granting
     them would hand over exactly the sockets the blanket deny exists to
-    protect. A socket the sandbox creates in a directory it can already
-    read and write is no new host exposure; the dangerous host sockets
-    (ssh-agent, terminal-emulator IPC) live outside these directories and
-    stay denied.
+    protect. Read-only grants are different: connect reaches only sockets
+    inside paths the user explicitly declared, which is the exposure the
+    declaration states.
 
     The nested_ro paths are the declared read-only paths sitting inside the
     writable scope — in practice inside the launch directory, since a
     declaration nested inside another declaration is refused at launch. They
-    get explicit denies after the allows, or the enclosing subpath allow
-    would let the sandbox bind and connect sockets in a directory declared
-    read-only. That the same directory currently accepts plain file writes
-    is issue #84, and its fix — explicit file-write denies — would not
-    touch these socket operations, so they are denied here rather than left
-    to it. Only the nested paths, not every ro declaration: a blanket deny
-    would also fire when a writable dir sits inside a read-only one
-    (launching from a subdirectory of an roDir), where the writable grant
-    must win.
+    get explicit bind denies after the allows, or the enclosing subpath allow
+    would let the sandbox create sockets in a directory declared read-only.
+    That the same directory currently accepts plain file writes is issue #84,
+    and its fix — explicit file-write denies — would not touch socket
+    operations, so they are denied here rather than left to it. Only the
+    nested paths, not every ro declaration: a blanket deny would also fire
+    when a writable dir sits inside a read-only one (launching from a
+    subdirectory of an roDir), where the writable grant must win. Connect
+    stays allowed in the nested paths, per the ro rule above.
 
     Assembled after the network rules, so the allows outrank open mode's
     blanket (deny network-outbound (remote unix-socket)) by last-match-wins;
@@ -456,7 +459,7 @@ def unix_sockets(
     """
     if not writable_dirs:
         return []
-    lines = ["", ";; AF_UNIX sockets — scoped to writable dirs (allowUnixSockets)"]
+    lines = ["", ";; AF_UNIX sockets — rw grants bind+connect (allowUnixSockets)"]
     for directory in writable_dirs:
         lines.append(
             f'(allow network-bind (local unix-socket (subpath "{directory}")))'
@@ -464,18 +467,22 @@ def unix_sockets(
         lines.append(
             f'(allow network-outbound (remote unix-socket (subpath "{directory}")))'
         )
+    if connect_dirs or connect_files:
+        lines.append(";; ...and ro grants connect")
+    for directory in connect_dirs:
+        lines.append(
+            f'(allow network-outbound (remote unix-socket (subpath "{directory}")))'
+        )
+    for file in connect_files:
+        lines.append(
+            f'(allow network-outbound (remote unix-socket (path-literal "{file}")))'
+        )
     if nested_ro_dirs or nested_ro_files:
-        lines.append(";; ...except the declared read-only paths nested inside")
+        lines.append(";; ...but never bind in the read-only paths nested inside")
     for directory in nested_ro_dirs:
         lines.append(f'(deny network-bind (local unix-socket (subpath "{directory}")))')
-        lines.append(
-            f'(deny network-outbound (remote unix-socket (subpath "{directory}")))'
-        )
     for file in nested_ro_files:
         lines.append(f'(deny network-bind (local unix-socket (path-literal "{file}")))')
-        lines.append(
-            f'(deny network-outbound (remote unix-socket (path-literal "{file}")))'
-        )
     return lines
 
 

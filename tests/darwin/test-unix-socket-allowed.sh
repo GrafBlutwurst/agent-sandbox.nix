@@ -10,9 +10,10 @@
 # behaviour is covered by test-unix-socket-egress-denied.sh.
 #
 # A third variant declares a read-only directory nested inside the launch
-# dir, and asserts the socket scope excludes it: the enclosing subpath allow
-# must not let the sandbox bind or connect there (the issue #84 interaction —
-# its file-write fix would not cover socket operations).
+# dir, and asserts the ro socket semantics hold inside the writable scope:
+# connect works (ro grants connect), but the enclosing subpath allow must not
+# let the sandbox bind there (the issue #84 interaction — its file-write fix
+# would not cover socket operations).
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -148,15 +149,16 @@ expect_fail run_filtered "filtered: cannot connect() to host socket outside scop
 expect_fail run_open "open: cannot connect() to host socket outside scope" \
 	"printf x | socat -t 1 - UNIX-CONNECT:'$SOCK_PATH'"
 
-# A declared read-only directory nested inside the CWD is denied back out of
-# the enclosing subpath allow — while the rest of the CWD keeps working.
+# A declared read-only directory nested inside the CWD: bind is denied back
+# out of the enclosing subpath allow, connect works per the ro rule — while
+# the rest of the CWD keeps working.
 expect_ok run_nested "nested roDir declared: bind+connect in CWD still works" "$IN_CWD_CHECK"
 expect_fail run_nested "cannot bind() inside a nested roDir" 'python3 -c "
 import socket
 s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 s.bind(\"nested-ro/deny.sock\")
 "'
-expect_fail run_nested "cannot connect() to a socket inside a nested roDir" \
+expect_ok run_nested "can connect() to a socket inside a nested roDir (ro grants connect)" \
 	"printf x | socat -t 1 - UNIX-CONNECT:'$NESTED_SOCK'"
 
 print_results
