@@ -57,6 +57,15 @@ RW_DIR=$(mktemp -d /private/tmp/uxsock-rw.XXXXXX)
 RO_DIR=$(mktemp -d /private/tmp/uxsock-ro.XXXXXX)
 RO_FILE_DIR=$(mktemp -d /private/tmp/uxsock-rof.XXXXXX)
 RO_FILE="$RO_FILE_DIR/host.sock"
+
+# A git repo launched from a subdirectory: the repo root is read-only
+# visible, so per the ro rule it must allow connect and refuse bind.
+REPO=$(mktemp -d /private/tmp/uxsock-git.XXXXXX)
+git init -q "$REPO"
+mkdir -p "$REPO/sub"
+run_repo() {
+	(cd "$REPO/sub" && "$SANDBOXED_FILTERED/bin/sandboxed-bash" --norc --noprofile -c "$1") >/dev/null 2>&1
+}
 run_declared() {
 	(cd "$TESTDIR" && UNIX_TEST_RW="$RW_DIR" UNIX_TEST_RO="$RO_DIR" \
 		UNIX_TEST_RO_FILE="$RO_FILE" \
@@ -91,7 +100,7 @@ cleanup() {
 		# shellcheck disable=SC2086
 		wait $LISTENER_PIDS 2>/dev/null || true
 	fi
-	rm -rf "$SOCK_DIR" "$TESTDIR" "$RW_DIR" "$RO_DIR" "$RO_FILE_DIR"
+	rm -rf "$SOCK_DIR" "$TESTDIR" "$RW_DIR" "$RO_DIR" "$RO_FILE_DIR" "$REPO"
 }
 trap cleanup EXIT
 
@@ -153,6 +162,10 @@ RO_DIR_SOCK="$RO_DIR/listener.sock"
 start_listener "$RO_DIR_SOCK" "$TESTDIR/listener-rodir.log"
 start_listener "$RO_FILE" "$TESTDIR/listener-rofile.log"
 
+# Host listener at the repo root, outside the launch subdirectory.
+REPO_SOCK="$REPO/root.sock"
+start_listener "$REPO_SOCK" "$TESTDIR/listener-repo.log"
+
 echo "=== UNIX sockets allowed in writable dirs (Darwin) ==="
 echo "TESTDIR=$TESTDIR"
 echo "SOCK_PATH=$SOCK_PATH"
@@ -206,6 +219,15 @@ expect_ok run_declared "can connect() to a socket inside a declared roDir" \
 	"printf x | socat -t 1 - UNIX-CONNECT:'$RO_DIR_SOCK'"
 expect_ok run_declared "can connect() to a socket declared as roFile" \
 	"printf x | socat -t 1 - UNIX-CONNECT:'$RO_FILE'"
+
+# Launching from a repo subdirectory: the read-only-visible repo root
+# follows the ro rule — connect works, bind does not.
+expect_ok run_repo "can connect() to a socket at the repo root" \
+	"printf x | socat -t 1 - UNIX-CONNECT:'$REPO_SOCK'"
+expect_fail run_repo "cannot bind() at the repo root" "python3 -c \"
+import socket
+socket.socket(socket.AF_UNIX, socket.SOCK_STREAM).bind('$REPO/deny.sock')
+\""
 
 print_results
 exit_status
