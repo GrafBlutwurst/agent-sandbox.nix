@@ -22,6 +22,7 @@ source "$SCRIPT_DIR/../lib.sh"
 SANDBOXED_FILTERED=$(build_fixture unix-socket-allowed-sandbox.nix)
 SANDBOXED_OPEN=$(build_fixture unix-socket-allowed-sandbox.nix --arg open true)
 SANDBOXED_NESTED=$(build_fixture unix-socket-allowed-sandbox.nix --arg nestedRoDir true)
+SANDBOXED_DECL=$(build_fixture unix-socket-allowed-sandbox.nix --arg withDeclaredPaths true)
 
 # Host-side python3 from nixpkgs, for the UNIX-socket listeners below.
 # /usr/bin/python3 on macOS is a Command Line Tools stub that isn't safe
@@ -47,6 +48,19 @@ run_open() {
 }
 run_nested() {
 	(cd "$TESTDIR" && "$SANDBOXED_NESTED/bin/sandboxed-bash" --norc --noprofile -c "$1") >/dev/null 2>&1
+}
+
+# Declared paths OUTSIDE the launch dir, for the per-mode semantics: rw
+# grants bind + connect, ro grants connect only. All short /private/tmp
+# paths — see the sun_path note above.
+RW_DIR=$(mktemp -d /private/tmp/uxsock-rw.XXXXXX)
+RO_DIR=$(mktemp -d /private/tmp/uxsock-ro.XXXXXX)
+RO_FILE_DIR=$(mktemp -d /private/tmp/uxsock-rof.XXXXXX)
+RO_FILE="$RO_FILE_DIR/host.sock"
+run_declared() {
+	(cd "$TESTDIR" && UNIX_TEST_RW="$RW_DIR" UNIX_TEST_RO="$RO_DIR" \
+		UNIX_TEST_RO_FILE="$RO_FILE" \
+		"$SANDBOXED_DECL/bin/sandboxed-bash" --norc --noprofile -c "$1") >/dev/null 2>&1
 }
 
 # bind(), listen(), connect() and a byte each way, all on a socket in the CWD.
@@ -77,7 +91,7 @@ cleanup() {
 		# shellcheck disable=SC2086
 		wait $LISTENER_PIDS 2>/dev/null || true
 	fi
-	rm -rf "$SOCK_DIR" "$TESTDIR"
+	rm -rf "$SOCK_DIR" "$TESTDIR" "$RW_DIR" "$RO_DIR" "$RO_FILE_DIR"
 }
 trap cleanup EXIT
 
@@ -132,6 +146,13 @@ start_listener "$SOCK_PATH" "$TESTDIR/listener-outside.log"
 NESTED_SOCK="$TESTDIR/nested-ro/listener.sock"
 start_listener "$NESTED_SOCK" "$TESTDIR/listener-nested.log"
 
+# Host listeners for the ro semantics: one inside the declared roDir, and
+# one AT the declared roFile path — the roFile must exist (and be the
+# socket) before any launch of the declared variant.
+RO_DIR_SOCK="$RO_DIR/listener.sock"
+start_listener "$RO_DIR_SOCK" "$TESTDIR/listener-rodir.log"
+start_listener "$RO_FILE" "$TESTDIR/listener-rofile.log"
+
 echo "=== UNIX sockets allowed in writable dirs (Darwin) ==="
 echo "TESTDIR=$TESTDIR"
 echo "SOCK_PATH=$SOCK_PATH"
@@ -160,6 +181,31 @@ s.bind(\"nested-ro/deny.sock\")
 "'
 expect_ok run_nested "can connect() to a socket inside a nested roDir (ro grants connect)" \
 	"printf x | socat -t 1 - UNIX-CONNECT:'$NESTED_SOCK'"
+
+# Declared paths outside the launch dir: rw grants bind + connect, ro
+# grants connect only — for a directory and for a single declared file.
+expect_ok run_declared "bind+connect a socket in a declared rwDir" "python3 -c \"
+import socket, os
+path = '$RW_DIR/rw.sock'
+try:
+    os.unlink(path)
+except FileNotFoundError:
+    pass
+srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+srv.bind(path)
+srv.listen(1)
+cli = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+cli.connect(path)
+srv.accept()
+\""
+expect_fail run_declared "cannot bind() inside a declared roDir" "python3 -c \"
+import socket
+socket.socket(socket.AF_UNIX, socket.SOCK_STREAM).bind('$RO_DIR/deny.sock')
+\""
+expect_ok run_declared "can connect() to a socket inside a declared roDir" \
+	"printf x | socat -t 1 - UNIX-CONNECT:'$RO_DIR_SOCK'"
+expect_ok run_declared "can connect() to a socket declared as roFile" \
+	"printf x | socat -t 1 - UNIX-CONNECT:'$RO_FILE'"
 
 print_results
 exit_status
