@@ -8,6 +8,8 @@ in sandbox.mkSandbox {
   outName = "sandboxed-bash-nix-support";
   allowedPackages = [ pkgs.coreutils ];
   allowNix = true;
+  # Required with allowNix: the daemon is reached over an AF_UNIX socket.
+  allowUnixSockets = true;
   env = {
     NIX_PATH = "nixpkgs=${pkgs.path}";
     NON_CLOSURE_STORE_PATH = "${nonClosurePkg}";

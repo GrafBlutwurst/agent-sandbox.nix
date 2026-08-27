@@ -19,6 +19,8 @@ from launcher.lib.constants import (
     CA_CERT,
     NETWORK,
     PASSWD,
+    SECCOMP_FD,
+    SECCOMP_FILTER,
 )
 from launcher.lib.host_state import GitState, HostStateLinux
 from launcher.lib.launch_config.linux.binds import (
@@ -29,6 +31,7 @@ from launcher.lib.launch_config.linux.binds import (
     get_git_binds,
 )
 from launcher.lib.launch_config.linux.nftables import get_nft_rules
+from launcher.lib.launch_config.linux.seccomp import get_unix_deny_filter
 from launcher.lib.launch_config.shared import (
     SandboxLaunchConfig,
     get_usable_git_state,
@@ -90,12 +93,21 @@ class NetworkConfig:
     # /proc/sys writes an nft ruleset cannot express.
     sysctls: Mapping[str, str]
     rules: tuple[str, ...]
+    # The AF_UNIX-denying BPF program to leave open on SECCOMP_FD for
+    # bubblewrap, or None with allowUnixSockets. In here rather than beside
+    # the bwrap args because the entry point is the only process that can
+    # open a descriptor bubblewrap inherits: pasta does not pass one to its
+    # child.
+    seccomp_filter: Path | None
 
 
 @dataclass(frozen=True, kw_only=True)
 class SandboxLaunchConfigLinux(SandboxLaunchConfig):
     bwrap_args: tuple[str, ...]
     network: NetworkConfig
+    # The program network.seccomp_filter points at, carried as a value so the
+    # whole launch stays assertable without a filesystem. write.py writes it.
+    seccomp_program: bytes | None
 
 
 def _get_computed_env(
@@ -211,6 +223,11 @@ def _get_bwrap_args(
 
     args += ["--symlink", str(spec.shell), "/bin/sh"]
     args += ["--symlink", str(spec.dependencies.env), "/usr/bin/env"]
+    # The descriptor apply_network_rules leaves open, holding the program in
+    # network.seccomp_filter. Denies socket(AF_UNIX, ...) with EPERM; see
+    # seccomp.py for why the platform needs a syscall filter at all.
+    if not spec.allow_unix_sockets:
+        args += ["--seccomp", str(SECCOMP_FD)]
     args += ["--unshare-all", "--hostname", "sandbox"]
     args += ["--uid", str(host.uid), "--gid", str(host.gid)]
     args += ["--share-net", "--die-with-parent"]
@@ -235,6 +252,15 @@ def compute_launch_config(
     sysctls: dict[str, str] = {}
     if spec.allowed_local_ports is None or spec.allowed_local_ports:
         sysctls = {path: "1" for path in ROUTE_LOCALNET_SYSCTLS}
+
+    if spec.allow_unix_sockets:
+        seccomp_program = None
+        seccomp_filter = None
+    else:
+        # launch_checks has already refused any machine the filter cannot be
+        # built for, so this cannot raise here.
+        seccomp_program = get_unix_deny_filter(host.machine)
+        seccomp_filter = session.session_dir / SECCOMP_FILTER
 
     bwrap_args = _get_bwrap_args(spec, host, session, git, binds, git_args)
 
@@ -293,5 +319,7 @@ def compute_launch_config(
             rules=tuple(
                 get_nft_rules(PASTA_GATEWAY_IP, proxy_port, spec.allowed_local_ports)
             ),
+            seccomp_filter=seccomp_filter,
         ),
+        seccomp_program=seccomp_program,
     )

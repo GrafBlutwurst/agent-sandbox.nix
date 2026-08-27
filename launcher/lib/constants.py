@@ -15,6 +15,14 @@ BWRAP_ARGS = "bwrap.args"
 # with a boolean in it, read the same way the launcher reads spec.json.
 NETWORK = "network.json"
 SEATBELT_PROFILE = "seatbelt.sb"
+# The compiled BPF program denying socket(AF_UNIX, ...). Written only when
+# allowUnixSockets is off; see launch_config/linux/seccomp.py.
+SECCOMP_FILTER = "seccomp.bpf"
+# Where apply_network_rules leaves the filter open for bubblewrap, and the
+# number compute.py writes after --seccomp. A contract like the filenames
+# above: the two sides never meet in one process, so they agree here. Fixed
+# and low, but above stdio; the entry point owns no other descriptors.
+SECCOMP_FD = 9
 PASSWD = "passwd"
 CA_BUNDLE = "ca-bundle.pem"
 CA_CERT = "ca-cert.pem"

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from launcher.lib.build_spec import SandboxBuildSpecDarwin
 from launcher.lib.constants import CA_BUNDLE, CA_CERT, PASSWD, SEATBELT_PROFILE
-from launcher.lib.host_state import GitState, HostStateDarwin
+from launcher.lib.host_state import DeclaredDir, GitState, HostStateDarwin
 from launcher.lib.launch_config.darwin import seatbelt
 from launcher.lib.launch_config.shared import SandboxLaunchConfig, get_usable_git_state
 from launcher.lib.session_state import SessionStateDarwin
@@ -85,6 +85,68 @@ def _get_home_symlinks(
             continue
         planted.append((sandbox_home / path.relative_to(host.real_home), path))
     return planted
+
+
+@dataclass(frozen=True, kw_only=True)
+class _UnixSocketScope:
+    # bind + connect: the launch directory plus every declared rw directory.
+    # rw files are excluded because a socket cannot be declared ahead of
+    # time — bind() refuses an existing path.
+    writable: tuple[Path, ...]
+    # connect only: every declared ro directory and file, per the rule that
+    # read access to a path means connect access to the sockets in it.
+    connect_dirs: tuple[Path, ...]
+    connect_files: tuple[Path, ...]
+    # The subset of the ro declarations sitting inside a writable dir, which
+    # need explicit bind denies or the enclosing subpath allow wins.
+    nested_ro_dirs: tuple[Path, ...]
+    nested_ro_files: tuple[Path, ...]
+
+
+def _get_unix_socket_scope(
+    host: HostStateDarwin, repo_root: Path | None
+) -> _UnixSocketScope:
+    """The socket scope. Semantics and rationale live on seatbelt.unix_sockets.
+
+    The repository root joins the connect set: it is read-only visible on
+    both platforms when launching from a subdirectory, and on Linux that
+    visibility already means connect — build servers keep their rendezvous
+    sockets at the build root (.bsp, .bloop, nailgun), which is the repo
+    root, not the module directory the agent was launched in. bind there
+    stays denied on both platforms, so the ro rule holds for it too.
+
+    The nesting filter is one-directional on purpose: an ro declaration
+    inside a writable dir gets a bind deny, but an ro directory enclosing a
+    writable one (launching from a subdirectory of an roDir) gets none, so
+    the writable grant keeps winning there. See seatbelt.unix_sockets for
+    why /tmp stays out of the writable set.
+    """
+    writable = [host.cwd]
+    for declared in host.declared:
+        if isinstance(declared, DeclaredDir) and declared.mode == "rw":
+            writable.append(declared.expanded_path)
+
+    connect_dirs: list[Path] = []
+    connect_files: list[Path] = []
+    if repo_root is not None:
+        connect_dirs.append(repo_root)
+    nested_ro_dirs: list[Path] = []
+    nested_ro_files: list[Path] = []
+    for declared in host.declared:
+        if declared.mode != "ro":
+            continue
+        path = declared.expanded_path
+        is_dir = isinstance(declared, DeclaredDir)
+        (connect_dirs if is_dir else connect_files).append(path)
+        if any(path.is_relative_to(directory) for directory in writable):
+            (nested_ro_dirs if is_dir else nested_ro_files).append(path)
+    return _UnixSocketScope(
+        writable=tuple(writable),
+        connect_dirs=tuple(connect_dirs),
+        connect_files=tuple(connect_files),
+        nested_ro_dirs=tuple(nested_ro_dirs),
+        nested_ro_files=tuple(nested_ro_files),
+    )
 
 
 def _get_passwd(host: HostStateDarwin) -> str:
@@ -165,6 +227,20 @@ def _get_profile_lines(
     else:
         lines += seatbelt.network_restricted(
             session.proxy.port, spec.allowed_local_ports
+        )
+
+    # After the network rules, so the allows outrank open mode's blanket
+    # unix-socket deny by last-match. Before nix_support, so the nested-ro
+    # denies inside this section can never shadow the daemon socket allow,
+    # should an roDir enclosing the daemon socket ever be declared.
+    if spec.allow_unix_sockets:
+        scope = _get_unix_socket_scope(host, repo_root)
+        lines += seatbelt.unix_sockets(
+            scope.writable,
+            scope.connect_dirs,
+            scope.connect_files,
+            scope.nested_ro_dirs,
+            scope.nested_ro_files,
         )
 
     # After the network rules, so the socket allow outranks the blanket
