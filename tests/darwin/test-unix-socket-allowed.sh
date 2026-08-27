@@ -27,14 +27,17 @@ SANDBOXED_NESTED=$(build_fixture unix-socket-allowed-sandbox.nix --arg nestedRoD
 # to depend on in CI; nix-provided python3 is reproducible.
 HOST_PYTHON3=$(build_host_pkg python3Minimal)/bin/python3
 
-TESTDIR_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)/.tmp-test"
-mkdir -p "$TESTDIR_ROOT"
-TESTDIR=$(mktemp -d "$TESTDIR_ROOT/unix-socket-allowed.XXXXXX")
+# Under /private/tmp rather than the checkout's .tmp-test: sun_path is ~104
+# bytes on macOS, and on the CI runner the checkout prefix alone pushes a
+# socket path inside .tmp-test past it — bind() fails with "AF_UNIX path too
+# long" before any assertion runs. Every socket this file touches lives under
+# a path minted here, so the prefix has to stay short.
+TESTDIR=$(mktemp -d /private/tmp/uxsock.XXXXXX)
 # The declared "$PWD/nested-ro" roDir must exist before any nested launch.
 mkdir -p "$TESTDIR/nested-ro"
 
 # Launch from TESTDIR so the launch directory — the CWD the seatbelt scope
-# covers — is a scratch directory rather than the repo.
+# covers — is a short scratch directory rather than the repo.
 run_filtered() {
 	(cd "$TESTDIR" && "$SANDBOXED_FILTERED/bin/sandboxed-bash" --norc --noprofile -c "$1") >/dev/null 2>&1
 }
@@ -82,6 +85,13 @@ trap cleanup EXIT
 # would observably complete, not just queue in the kernel backlog.
 start_listener() {
 	local sock_path="$1" logfile="$2"
+	# Fail loudly instead of mysteriously: past this length bind() fails with
+	# "AF_UNIX path too long" no matter what the sandbox allows, which also
+	# makes every expect_fail against the socket pass for the wrong reason.
+	if [ "${#sock_path}" -gt 100 ]; then
+		echo "HARNESS ERROR: socket path exceeds sun_path budget (${#sock_path} > 100): $sock_path" >&2
+		return 1
+	fi
 	"$HOST_PYTHON3" -c '
 import socket, sys, signal, threading
 s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
