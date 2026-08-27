@@ -103,8 +103,17 @@ class _UnixSocketScope:
     nested_ro_files: tuple[Path, ...]
 
 
-def _get_unix_socket_scope(host: HostStateDarwin) -> _UnixSocketScope:
+def _get_unix_socket_scope(
+    host: HostStateDarwin, repo_root: Path | None
+) -> _UnixSocketScope:
     """The socket scope. Semantics and rationale live on seatbelt.unix_sockets.
+
+    The repository root joins the connect set: it is read-only visible on
+    both platforms when launching from a subdirectory, and on Linux that
+    visibility already means connect — build servers keep their rendezvous
+    sockets at the build root (.bsp, .bloop, nailgun), which is the repo
+    root, not the module directory the agent was launched in. bind there
+    stays denied on both platforms, so the ro rule holds for it too.
 
     The nesting filter is one-directional on purpose: an ro declaration
     inside a writable dir gets a bind deny, but an ro directory enclosing a
@@ -119,6 +128,8 @@ def _get_unix_socket_scope(host: HostStateDarwin) -> _UnixSocketScope:
 
     connect_dirs: list[Path] = []
     connect_files: list[Path] = []
+    if repo_root is not None:
+        connect_dirs.append(repo_root)
     nested_ro_dirs: list[Path] = []
     nested_ro_files: list[Path] = []
     for declared in host.declared:
@@ -223,7 +234,7 @@ def _get_profile_lines(
     # denies inside this section can never shadow the daemon socket allow,
     # should an roDir enclosing the daemon socket ever be declared.
     if spec.allow_unix_sockets:
-        scope = _get_unix_socket_scope(host)
+        scope = _get_unix_socket_scope(host, repo_root)
         lines += seatbelt.unix_sockets(
             scope.writable,
             scope.connect_dirs,

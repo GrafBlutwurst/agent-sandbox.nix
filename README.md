@@ -204,7 +204,7 @@ Set `allowedLocalPorts = null;` to allow all host-local TCP ports. Keep explicit
 
 ### UNIX-domain sockets
 
-UNIX-domain (AF_UNIX) sockets are denied by default: host sockets are how a sandboxed process would reach your SSH agent or other per-user services. Set `allowUnixSockets = true` to opt in — build tools that rendezvous over a domain socket (sbt/BSP, metals, nailgun) need it. Access then follows the filesystem grants on both platforms: paths the agent can write (the launch directory, `rwDirs`) allow creating and connecting to sockets, read-only paths (`roDirs`, `roFiles`) allow connecting only.
+UNIX-domain (AF_UNIX) sockets are denied by default: host sockets are how a sandboxed process would reach your SSH agent or other per-user services. Set `allowUnixSockets = true` to opt in — build tools that rendezvous over a domain socket (sbt/BSP, metals, nailgun) need it. Access then follows the filesystem grants on both platforms: paths the agent can write (the launch directory, `rwDirs`) allow creating and connecting to sockets, read-only paths (`roDirs`, `roFiles`, and the repository root when launching from a subdirectory) allow connecting only.
 
 `allowNix = true` requires `allowUnixSockets = true`, because the nix daemon is reached over a UNIX-domain socket.
 
