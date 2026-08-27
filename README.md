@@ -22,39 +22,39 @@ Everything else is denied. `$HOME` is an ephemeral writable tmpfs that disappear
 
 <!-- vim-markdown-toc GFM -->
 
-- [Usage and configuration](#usage-and-configuration)
-  - [Templates](#templates)
-  - [Arguments](#arguments)
-  - [Network restrictions](#network-restrictions)
-    - [Domain and internet access](#domain-and-internet-access)
-    - [Host-local ports](#host-local-ports)
-  - [UNIX-domain sockets](#unix-domain-sockets)
-  - [Supported agents](#supported-agents)
-- [Authentication](#authentication)
-  - [Environment variable tokens (recommended)](#environment-variable-tokens-recommended)
-  - [Credential files via `rwDirs`](#credential-files-via-rwdirs)
-- [Git](#git)
-  - [Remote access (push / pull / fetch)](#remote-access-push--pull--fetch)
-  - [Git identity](#git-identity)
-  - [Read-only paths in the git directory](#read-only-paths-in-the-git-directory)
-- [Using Nix inside the sandbox](#using-nix-inside-the-sandbox)
-- [Common patterns / recipes](#common-patterns--recipes)
-  - [Python with uv](#python-with-uv)
-  - [Node.js with npm](#nodejs-with-npm)
-- [Troubleshooting](#troubleshooting)
-  - [Filesystem access issues](#filesystem-access-issues)
-  - [Network access issues](#network-access-issues)
-  - [macOS: unexpected sandbox denials](#macos-unexpected-sandbox-denials)
-  - [macOS: localhost service denials](#macos-localhost-service-denials)
-- [Security](#security)
-  - [What it protects against](#what-it-protects-against)
-  - [What it doesn't protect against](#what-it-doesnt-protect-against)
-  - [Launching from your home directory](#launching-from-your-home-directory)
-  - [Specific things worth being aware of](#specific-things-worth-being-aware-of)
-  - [Linux vs macOS](#linux-vs-macos)
-  - [Is this the right tool for me?](#is-this-the-right-tool-for-me)
-- [Caveats](#caveats)
-- [Similar projects](#similar-projects)
+* [Usage and configuration](#usage-and-configuration)
+    * [Templates](#templates)
+    * [Arguments](#arguments)
+    * [Network restrictions](#network-restrictions)
+        * [Domain and internet access](#domain-and-internet-access)
+        * [Host-local ports](#host-local-ports)
+    * [UNIX-domain sockets](#unix-domain-sockets)
+    * [Supported agents](#supported-agents)
+* [Authentication](#authentication)
+    * [Environment variable tokens (recommended)](#environment-variable-tokens-recommended)
+    * [Credential files via `rwDirs`](#credential-files-via-rwdirs)
+* [Git](#git)
+    * [Remote access (push / pull / fetch)](#remote-access-push--pull--fetch)
+    * [Git identity](#git-identity)
+    * [Read-only paths in the git directory](#read-only-paths-in-the-git-directory)
+* [Using Nix inside the sandbox](#using-nix-inside-the-sandbox)
+* [Common patterns / recipes](#common-patterns--recipes)
+    * [Python with uv](#python-with-uv)
+    * [Node.js with npm](#nodejs-with-npm)
+* [Troubleshooting](#troubleshooting)
+    * [Filesystem access issues](#filesystem-access-issues)
+    * [Network access issues](#network-access-issues)
+    * [macOS: unexpected sandbox denials](#macos-unexpected-sandbox-denials)
+    * [macOS: localhost service denials](#macos-localhost-service-denials)
+* [Security](#security)
+    * [What it protects against](#what-it-protects-against)
+    * [What it doesn't protect against](#what-it-doesnt-protect-against)
+    * [Launching from your home directory](#launching-from-your-home-directory)
+    * [Specific things worth being aware of](#specific-things-worth-being-aware-of)
+    * [Linux vs macOS](#linux-vs-macos)
+    * [Is this the right tool for me?](#is-this-the-right-tool-for-me)
+* [Caveats](#caveats)
+* [Similar projects](#similar-projects)
 
 <!-- vim-markdown-toc -->
 
@@ -125,11 +125,11 @@ If you want to keep the original command name as the alias, change the `outName`
 | `rwFiles` | no | Individual files the agent can read/write |
 | `roDirs` | no | Directories the agent can read but not write (e.g. signed binaries, reference source trees, secret stores) |
 | `roFiles` | no | Individual files the agent can read but not write (e.g. `~/.config/git/config` for git identity — see [Git identity](#git-identity)) |
-| `allowNix` | no | If `true`, expose the host's `nix-daemon` socket and the full Nix store so the agent can run `nix build`, `nix run`, `nix develop`, etc. `pkgs.nix` is added to PATH automatically. Requires `allowUnixSockets = true`. Defaults to `false`. See [Using Nix inside the sandbox](#using-nix-inside-the-sandbox). |
-| `allowUnixSockets` | no | If `true`, allow the agent to create and connect to UNIX-domain (AF_UNIX) sockets in directories it can read (allows connect) or write (allows bind). Defaults to `false`. See [UNIX-domain sockets](#unix-domain-sockets). |
 | `env` | no | Additional environment variables as an attrset |
 | `allowedDomains` | no | Limits which domains the sandbox can reach. Leave unset for open internet. Accepts a list of domains (all methods allowed), or an attrset mapping each domain to `"*"` or a list of HTTP methods. `[ ]` blocks all internet access. |
+| `allowUnixSockets` | no | If `true`, allow the agent to create and connect to UNIX-domain (AF_UNIX) sockets in directories it can read (allows connect) or write (allows bind). Defaults to `false`. See [UNIX-domain sockets](#unix-domain-sockets). |
 | `allowedLocalPorts` | no | Host-local TCP ports the sandbox may reach. Defaults to `[ ]`. Set to `null` to allow all host-local TCP ports. Otherwise, entries must be integers from `1` to `65535`. |
+| `allowNix` | no | If `true`, expose the host's `nix-daemon` socket and the full Nix store so the agent can run `nix build`, `nix run`, `nix develop`, etc. `pkgs.nix` is added to PATH automatically. Requires `allowUnixSockets = true`. Defaults to `false`. See [Using Nix inside the sandbox](#using-nix-inside-the-sandbox). |
 
 For `allowedPackages`, `bash` and `cacert` are provided by default — the sandbox needs a shell to run, and `cacert` is required for HTTPS to work. The library also exports `commonTools` (a list of standard CLI tools) for convenience; see [`default.nix`](default.nix) for the full list.
 
