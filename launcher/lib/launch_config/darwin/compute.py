@@ -87,39 +87,55 @@ def _get_home_symlinks(
     return planted
 
 
-def _get_unix_socket_scope(
-    host: HostStateDarwin,
-) -> tuple[list[Path], list[Path], list[Path]]:
-    """The socket scope: writable dirs, plus the ro declarations nested inside.
+@dataclass(frozen=True, kw_only=True)
+class _UnixSocketScope:
+    # bind + connect: the launch directory plus every declared rw directory.
+    # rw files are excluded because a socket cannot be declared ahead of
+    # time — bind() refuses an existing path.
+    writable: tuple[Path, ...]
+    # connect only: every declared ro directory and file, per the rule that
+    # read access to a path means connect access to the sockets in it.
+    connect_dirs: tuple[Path, ...]
+    connect_files: tuple[Path, ...]
+    # The subset of the ro declarations sitting inside a writable dir, which
+    # need explicit bind denies or the enclosing subpath allow wins.
+    nested_ro_dirs: tuple[Path, ...]
+    nested_ro_files: tuple[Path, ...]
 
-    Writable is the launch directory plus every declared rw directory, in
-    that order. rw files are excluded because a socket cannot be declared
-    ahead of time — bind() refuses an existing path — and ro directories
-    because bind() there is a write in every sense that matters. See
-    seatbelt.unix_sockets for why /tmp stays out.
 
-    The ro declarations found inside the writable dirs are returned so
-    seatbelt.unix_sockets can deny them back out of the enclosing subpath
-    allows; the rationale, and why only the nested ones, lives there.
+def _get_unix_socket_scope(host: HostStateDarwin) -> _UnixSocketScope:
+    """The socket scope. Semantics and rationale live on seatbelt.unix_sockets.
+
+    The nesting filter is one-directional on purpose: an ro declaration
+    inside a writable dir gets a bind deny, but an ro directory enclosing a
+    writable one (launching from a subdirectory of an roDir) gets none, so
+    the writable grant keeps winning there. See seatbelt.unix_sockets for
+    why /tmp stays out of the writable set.
     """
     writable = [host.cwd]
     for declared in host.declared:
         if isinstance(declared, DeclaredDir) and declared.mode == "rw":
             writable.append(declared.expanded_path)
 
+    connect_dirs: list[Path] = []
+    connect_files: list[Path] = []
     nested_ro_dirs: list[Path] = []
     nested_ro_files: list[Path] = []
     for declared in host.declared:
         if declared.mode != "ro":
             continue
         path = declared.expanded_path
-        if not any(path.is_relative_to(directory) for directory in writable):
-            continue
-        if isinstance(declared, DeclaredDir):
-            nested_ro_dirs.append(path)
-        else:
-            nested_ro_files.append(path)
-    return writable, nested_ro_dirs, nested_ro_files
+        is_dir = isinstance(declared, DeclaredDir)
+        (connect_dirs if is_dir else connect_files).append(path)
+        if any(path.is_relative_to(directory) for directory in writable):
+            (nested_ro_dirs if is_dir else nested_ro_files).append(path)
+    return _UnixSocketScope(
+        writable=tuple(writable),
+        connect_dirs=tuple(connect_dirs),
+        connect_files=tuple(connect_files),
+        nested_ro_dirs=tuple(nested_ro_dirs),
+        nested_ro_files=tuple(nested_ro_files),
+    )
 
 
 def _get_passwd(host: HostStateDarwin) -> str:
@@ -207,8 +223,14 @@ def _get_profile_lines(
     # denies inside this section can never shadow the daemon socket allow,
     # should an roDir enclosing the daemon socket ever be declared.
     if spec.allow_unix_sockets:
-        writable, nested_ro_dirs, nested_ro_files = _get_unix_socket_scope(host)
-        lines += seatbelt.unix_sockets(writable, nested_ro_dirs, nested_ro_files)
+        scope = _get_unix_socket_scope(host)
+        lines += seatbelt.unix_sockets(
+            scope.writable,
+            scope.connect_dirs,
+            scope.connect_files,
+            scope.nested_ro_dirs,
+            scope.nested_ro_files,
+        )
 
     # After the network rules, so the socket allow outranks the blanket
     # unix-socket deny in open mode.
