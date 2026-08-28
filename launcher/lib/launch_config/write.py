@@ -30,9 +30,14 @@ from launcher.lib.constants import (
     SECCOMP_FILTER,
 )
 from launcher.lib.launch_config.darwin.compute import SandboxLaunchConfigDarwin
+from launcher.lib.launch_config.linux.binds import NIX_STORE
 from launcher.lib.launch_config.linux.compute import SandboxLaunchConfigLinux
 from launcher.lib.launch_config.shared import SandboxLaunchConfig
 from launcher.lib.session_state import SessionState, SessionStateDarwin
+
+NIX_STORE_TMPFS_LINE = f"--tmpfs {NIX_STORE}"
+CLOSURE_HEADER = "# nix store closure"
+CLOSURE_FOOTER = "# end nix store closure"
 
 
 def _as_json_value(value: object) -> str:
@@ -59,6 +64,54 @@ def _write_newline_separated(path: Path, lines: Sequence[str]) -> None:
 def _write_concatenated(path: Path, sources: Sequence[Path]) -> None:
     """Bytes, not text: these are certificates, and re-encoding could alter them."""
     path.write_bytes(b"".join(source.read_bytes() for source in sources))
+
+
+def _group_by_option(args: Sequence[str]) -> list[str]:
+    """One bubblewrap option and its operands per line."""
+    lines: list[str] = []
+    for arg in args:
+        if not lines or arg.startswith("--"):
+            lines.append(arg)
+        else:
+            lines[-1] += f" {arg}"
+    return lines
+
+
+def _is_closure_bind(line: str) -> bool:
+    """A store path bound read-only at itself, and nothing else."""
+    parts = line.split(" ")
+    return (
+        len(parts) == 3
+        and parts[0] == "--ro-bind"
+        and parts[1] == parts[2]
+        and parts[1].startswith(f"{NIX_STORE}/")
+    )
+
+
+def format_bwrap_args(args: Sequence[str]) -> list[str]:
+    """The argument list as something worth scrolling through.
+
+    The closure binds are the great majority of the list and almost never what
+    is being looked for, so they are marked off to be skipped past.
+    """
+    lines = _group_by_option(args)
+    if NIX_STORE_TMPFS_LINE not in lines:
+        return lines
+
+    start = lines.index(NIX_STORE_TMPFS_LINE) + 1
+    end = start
+    while end < len(lines) and _is_closure_bind(lines[end]):
+        end += 1
+    if end == start:
+        return lines
+
+    return [
+        *lines[:start],
+        f"{CLOSURE_HEADER} ({end - start} paths)",
+        *lines[start:end],
+        CLOSURE_FOOTER,
+        *lines[end:],
+    ]
 
 
 def _write_common(config: SandboxLaunchConfig, session: SessionState) -> None:
@@ -93,12 +146,16 @@ def write_launch_config_linux(
     # file because the bind list on its own is what you want to look at when a
     # path is missing inside the sandbox.
     #
-    # Newline-separated, unlike everything else here holding paths. Nothing
-    # re-splits this file, so the separator answers to the reader rather than to
-    # a parser, and NUL makes it one run-on line under cat. An argument holding
-    # a newline is ambiguous here as a result; argv-after-env is the copy that
-    # has to be right about that, and it is.
-    _write_newline_separated(session.session_dir / BWRAP_ARGS, config.bwrap_args)
+    # One option per line, unlike everything else here holding paths. Nothing
+    # re-splits this file, so the layout answers to the reader rather than to a
+    # parser, and NUL makes it one run-on line under cat. Joining each option to
+    # its operands with a space leaves an argument containing a space or a
+    # newline ambiguous; argv-after-env is the copy that has to be right about
+    # that, and it is. The tokens themselves are verbatim either way, so what
+    # this drops is only where one argument ends and the next begins.
+    _write_newline_separated(
+        session.session_dir / BWRAP_ARGS, format_bwrap_args(config.bwrap_args)
+    )
 
     # Bytes: it is a compiled BPF program, read back by apply_network_rules
     # at the path network.json carries.
