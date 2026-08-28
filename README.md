@@ -13,7 +13,7 @@ The sandbox uses [bubblewrap](https://github.com/containers/bubblewrap) on Linux
 - **Allowed packages**: the binaries you list in `allowedPackages` are on the agent's PATH, together with `bash` and `cacert`.
 - **Network**: open internet access by default, with host-local services blocked. Set `allowedDomains` to limit the internet domains. Set `allowedLocalPorts` to permit specific host-local TCP ports.
 - **Environment**: only the variables you pass through `env` reach the agent. The sandbox clears the rest of the host environment.
-- **Git**: the repo's `.git` directory is exposed, also when it sits outside the project tree (worktrees).
+- **Git**: read/write access to the git directory, and read-only access to the directory that contains it. The same applies when the git directory is outside the project tree (worktrees). See [Git](#git).
 - **Nix**: disabled by default. You can let the agent run nix commands.
 
 The sandbox denies everything else. `$HOME` is an ephemeral writable tmpfs that disappears when the sandbox exits. There is one exception. If you launch the agent from your home directory, the sandbox exposes that directory read-write, like any other launch directory. See [Launching from your home directory](#launching-from-your-home-directory).
@@ -34,6 +34,7 @@ The sandbox denies everything else. `$HOME` is an ephemeral writable tmpfs that 
     * [Environment variable tokens (recommended)](#environment-variable-tokens-recommended)
     * [Credential files via `rwDirs`](#credential-files-via-rwdirs)
 * [Git](#git)
+    * [What the sandbox exposes](#what-the-sandbox-exposes)
     * [Remote access (push / pull / fetch)](#remote-access-push--pull--fetch)
     * [Git identity](#git-identity)
     * [Read-only paths in the git directory](#read-only-paths-in-the-git-directory)
@@ -295,7 +296,24 @@ Note: OAuth access tokens expire. Run the export command again from time to time
 
 ## Git
 
-The sandbox allows access to the local git directory, also from inside worktrees. Branch switches, history reads and other local operations work with no extra configuration. A commit needs a declared git identity. See [Git identity](#git-identity).
+Local git operations work with no extra configuration. The agent can switch branches, read history, and commit. A commit needs a declared git identity. See [Git identity](#git-identity).
+
+### What the sandbox exposes
+
+At launch, the sandbox asks git for the common git directory. Git searches upward from the launch directory to find it. If there is no repo, the sandbox exposes no git paths. If there is a repo, the sandbox exposes three paths:
+
+| Path | Access |
+|---|---|
+| The launch directory | read-write |
+| The git directory | read-write, except the [read-only paths](#read-only-paths-in-the-git-directory) |
+| The parent of the git directory | read-only |
+
+For an ordinary repo, that parent is the repo root. This is why git works when you launch from a subdirectory. Two cases are different:
+
+- **Worktrees:** the git directory belongs to the main repo, so its parent is the main repo root. The agent can read the main checkout, and each sibling worktree below it.
+- **Submodules:** the git directory is `<superproject>/.git/modules/<name>`, so its parent is `.git/modules`. The sandbox does not expose the superproject working tree. The agent can read the git directory of other submodules.
+
+If that parent is your home directory or above it, the sandbox disables git for the session and prints a warning. A repo whose root is `$HOME` therefore gets no git support. The exception is a launch from `$HOME` itself.
 
 ### Remote access (push / pull / fetch)
 
@@ -502,6 +520,8 @@ The sandbox refuses a launch directory above `$HOME` (`/`, `/home`, `/Users`) ou
 - Your username and home directory path are visible to the agent. This is unavoidable, because the agent needs to know where `$HOME/.claude` resolves to. If your username is itself sensitive, this is not the right tool.
 - All of `/nix/store` is readable, not only your allowed packages. The allowlist restricts execution only. The Nix store is normally world-readable on any system, so this matches existing behavior, but it does mean that the agent can list every package you have built.
 - `/tmp` is shared with the host. The agent can see the sockets and files that other programs leave there, but it cannot connect to them. Do not put secrets in `/tmp` while the sandbox runs.
+- A launch from a subdirectory does not limit reads to that subdirectory. The agent can read the whole repo. From a worktree, it can also read the main checkout. See [What the sandbox exposes](#what-the-sandbox-exposes).
+- The agent can read all of the git directory. This includes every branch, stash and reflog entry, also content that is no longer in the working tree.
 
 ### Linux vs macOS
 
