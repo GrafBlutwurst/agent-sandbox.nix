@@ -2,21 +2,21 @@
 
 Lightweight and declarative sandboxing for AI agents on Linux and macOS.
 
-Prevent your agents in YOLO mode from deleting your $HOME, force pushing to main, or publishing your ssh keys on reddit. Works with any CLI-based AI agent — tested with Claude Code and GitHub Copilot CLI (see [Supported agents](#supported-agents)).
+Prevent your agents in YOLO mode from deleting your $HOME, force pushing to main, or publishing your ssh keys on reddit. The sandbox works with any CLI-based AI agent. It is tested with Claude Code and GitHub Copilot CLI (see [Supported agents](#supported-agents)).
 
-The sandbox uses [bubblewrap](https://github.com/containers/bubblewrap) on Linux and sandbox-exec on macOS. See [Security](#security) for the threat model and known limits.
+The sandbox uses [bubblewrap](https://github.com/containers/bubblewrap) on Linux and sandbox-exec on macOS. See [Security](#security) for the threat model and the known limits.
 
 ## What the sandbox allows
 
-- **Project directory** — read/write access to the directory you launch the agent from.
-- **Declared state** — read/write access to anything you list in `rwDirs` / `rwFiles`, or read-only access via `roDirs` / `roFiles`.
-- **Allowed packages** — the binaries you list in `allowedPackages` are on the agent's PATH (plus `bash` and `cacert`).
-- **Network** — unrestricted internet by default, with host-local services blocked. Set `allowedDomains` to limit internet domains, and use `allowedLocalPorts` for explicit host-local TCP port access.
-- **Environment** — only variables you pass via `env` reach the agent; the host environment is otherwise cleared.
-- **Git** — the repo's `.git` directory is exposed, including when it sits outside the project tree (worktrees).
-- **Nix** — disabled by default. Optionally allow the agent to run nix commands.
+- **Project directory**: read/write access to the directory you launch the agent from.
+- **Declared state**: read/write access to anything you list in `rwDirs` / `rwFiles`, or read-only access through `roDirs` / `roFiles`.
+- **Allowed packages**: the binaries you list in `allowedPackages` are on the agent's PATH, together with `bash` and `cacert`.
+- **Network**: open internet access by default, with host-local services blocked. Set `allowedDomains` to limit the internet domains. Set `allowedLocalPorts` to permit specific host-local TCP ports.
+- **Environment**: only the variables you pass through `env` reach the agent. The sandbox clears the rest of the host environment.
+- **Git**: the repo's `.git` directory is exposed, also when it sits outside the project tree (worktrees).
+- **Nix**: disabled by default. You can let the agent run nix commands.
 
-Everything else is denied. `$HOME` is an ephemeral writable tmpfs that disappears when the sandbox exits. The exception is launching the agent from your home directory itself, which exposes it read-write like any other launch directory. See [Launching from your home directory](#launching-from-your-home-directory).
+The sandbox denies everything else. `$HOME` is an ephemeral writable tmpfs that disappears when the sandbox exits. There is one exception. If you launch the agent from your home directory, the sandbox exposes that directory read-write, like any other launch directory. See [Launching from your home directory](#launching-from-your-home-directory).
 
 ## Contents
 
@@ -61,13 +61,13 @@ Everything else is denied. `$HOME` is an ephemeral writable tmpfs that disappear
 
 ## Usage and configuration
 
-The quickest way to get started is with a flake template. If you prefer a `shell.nix`, see [`shells/`](shells/) for ready-to-use examples. Authentication is covered [below](#authentication).
+The quickest way to start is with a flake template. If you prefer a `shell.nix`, see [`shells/`](shells/) for examples you can use directly. For authentication, see [Authentication](#authentication).
 
 <details id="v0x-to-v1x-migration-guide">
 <summary><strong>V0.x to V1.x migration guide</strong></summary>
 <br>
 
-A few arguments were renamed, and `restrictNetwork` was removed. If you use an old name you'll get a clear error telling you the new one. Update your config like this:
+V1.x renames some arguments and removes `restrictNetwork`. If you use an old name, you get an error that tells you the new name. Update your config as follows:
 
 | Old | New |
 |---|---|
@@ -76,17 +76,17 @@ A few arguments were renamed, and `restrictNetwork` was removed. If you use an o
 | `stateFiles = [ … ]` | `rwFiles = [ … ]` |
 | `restrictNetwork = true; allowedDomains = …` | `allowedDomains = …` |
 | `restrictNetwork = true; allowedDomains = [ ]` | `allowedDomains = [ ]` |
-| `restrictNetwork = false` | remove it — just don't set `allowedDomains` |
+| `restrictNetwork = false` | remove it, and do not set `allowedDomains` |
 
-Network access is now controlled by `allowedDomains` on its own: leave it unset for open internet, list the domains you want to allow, or use `[ ]` to block everything.
+`allowedDomains` now controls network access on its own. Leave it unset for open internet. List the domains you want to allow. Set it to `[ ]` to block everything.
 
-**If you relied on host loopback reachability:** previously, leaving `restrictNetwork` unset let the agent reach host-local services (Ollama, a local database, a local MCP server, etc.). That no longer works by default — host loopback is blocked unless you explicitly opt in with `allowedLocalPorts`.
+**If you relied on host loopback reachability:** in V0.x, an unset `restrictNetwork` let the agent reach host-local services (Ollama, a local database, a local MCP server, and similar). This no longer works by default. The sandbox blocks host loopback unless you permit ports with `allowedLocalPorts`.
 
 </details>
 
 ### Templates
 
-Flake templates for Claude Code and GitHub Copilot CLI are provided for quick project setup, but you can alter either to work with any other CLI tool.
+The repository provides flake templates for Claude Code and GitHub Copilot CLI for quick project setup. You can change either template to work with another CLI tool.
 
 To initialize a template in your project directory:
 
@@ -96,13 +96,13 @@ nix flake init -t github:archie-judd/agent-sandbox.nix#claude
 nix flake init -t github:archie-judd/agent-sandbox.nix#copilot
 ```
 
-This creates a `flake.nix` in your project (see [`templates/claude/flake.nix`](templates/claude/flake.nix) for what you get). Edit it to suit your needs, ensure your access token is exported, and then enter the dev shell:
+This command creates a `flake.nix` in your project. See [`templates/claude/flake.nix`](templates/claude/flake.nix) for the contents. Edit the file for your needs, export your access token, and then enter the dev shell:
 
 ```bash
 nix develop
 ```
 
-And invoke your wrapped binary:
+Then run your wrapped binary:
 
 ```bash
 claude-sandboxed --dangerously-skip-permissions # Claude Code's "YOLO mode"
@@ -110,7 +110,7 @@ claude-sandboxed --dangerously-skip-permissions # Claude Code's "YOLO mode"
 copilot-sandboxed --yolo
 ```
 
-If you want to keep the original command name as the alias, change the `outName` value (e.g. to `"claude"` or `"copilot"`).
+To keep the original command name as the alias, change the `outName` value, for example to `"claude"` or `"copilot"`.
 
 ### Arguments
 
@@ -118,25 +118,25 @@ If you want to keep the original command name as the alias, change the `outName`
 
 | Argument | Required | Description |
 |---|---|---|
-| `pkg` | yes | Package containing the binary to wrap |
+| `pkg` | yes | Package that contains the binary to wrap |
 | `binName` | yes | Name of the binary inside `pkg/bin/` |
-| `outName` | yes | Name for the resulting wrapped binary and the command to invoke it with |
-| `allowedPackages` | yes | Packages whose `bin/` dirs form the sandbox PATH (see the note below the table) |
-| `rwDirs` | no | Directories the agent can read/write (e.g. `~/.config/claude`) |
-| `rwFiles` | no | Individual files the agent can read/write |
-| `roDirs` | no | Directories the agent can read but not write (e.g. signed binaries, reference source trees, secret stores) |
-| `roFiles` | no | Individual files the agent can read but not write (e.g. `~/.config/git/config` for git identity — see [Git identity](#git-identity)) |
-| `env` | no | Additional environment variables as an attrset |
-| `allowedDomains` | no | Limits which domains the sandbox can reach. Leave unset for open internet. Accepts a list of domains (all methods allowed), or an attrset mapping each domain to `"*"` or a list of HTTP methods. `[ ]` blocks all internet access. |
-| `allowUnixSockets` | no | If `true`, allow the agent to create and connect to UNIX-domain (AF_UNIX) sockets in directories it can read (allows connect) or write (allows bind). Defaults to `false`. See [UNIX-domain sockets](#unix-domain-sockets). |
-| `allowedLocalPorts` | no | Host-local TCP ports the sandbox may reach. Defaults to `[ ]`. Set to `null` to allow all host-local TCP ports. Otherwise, entries must be integers from `1` to `65535`. |
-| `allowNix` | no | If `true`, expose the host's `nix-daemon` socket and the full Nix store so the agent can run `nix build`, `nix run`, `nix develop`, etc. `pkgs.nix` is added to PATH automatically. Requires `allowUnixSockets = true`. Defaults to `false`. See [Using Nix inside the sandbox](#using-nix-inside-the-sandbox). |
+| `outName` | yes | Name of the wrapped binary, and the command that runs it |
+| `allowedPackages` | yes | Packages whose `bin/` dirs form the sandbox PATH. See the note below the table |
+| `rwDirs` | no | Directories the agent can read and write (for example `~/.config/claude`) |
+| `rwFiles` | no | Individual files the agent can read and write |
+| `roDirs` | no | Directories the agent can read but not write (for example signed binaries, reference source trees, secret stores) |
+| `roFiles` | no | Individual files the agent can read but not write (for example `~/.config/git/config` for the git identity, see [Git identity](#git-identity)) |
+| `env` | no | Additional environment variables, as an attrset |
+| `allowedDomains` | no | Limits the domains the sandbox can reach. Leave it unset for open internet. Accepts a list of domains (all methods allowed), or an attrset that maps each domain to `"*"` or to a list of HTTP methods. `[ ]` blocks all internet access. |
+| `allowUnixSockets` | no | If `true`, the agent can create and connect to UNIX-domain (AF_UNIX) sockets. It can connect in directories it can read, and bind in directories it can write. Defaults to `false`. See [UNIX-domain sockets](#unix-domain-sockets). |
+| `allowedLocalPorts` | no | Host-local TCP ports the sandbox can reach. Defaults to `[ ]`. Set it to `null` to allow all host-local TCP ports. Otherwise, entries must be integers from `1` to `65535`. |
+| `allowNix` | no | If `true`, the sandbox exposes the host's `nix-daemon` socket and the full Nix store, so the agent can run `nix build`, `nix run`, `nix develop`, and similar commands. The sandbox adds `pkgs.nix` to PATH. Requires `allowUnixSockets = true`. Defaults to `false`. See [Using Nix inside the sandbox](#using-nix-inside-the-sandbox). |
 
-For `allowedPackages`, `bash` and `cacert` are provided by default — the sandbox needs a shell to run, and `cacert` is required for HTTPS to work. The library also exports `commonTools` (a list of standard CLI tools) for convenience; see [`default.nix`](default.nix) for the full list.
+The sandbox adds `bash` and `cacert` to `allowedPackages` by default. The sandbox needs a shell to run, and `cacert` is necessary for HTTPS. The library also exports `commonTools`, a list of standard CLI tools. See [`default.nix`](default.nix) for the full list.
 
-Paths declared in `rwDirs` / `rwFiles` / `roDirs` / `roFiles` must exist on the host before launch — the sandbox exits with a clear error if any are missing.
+Paths in `rwDirs`, `rwFiles`, `roDirs` and `roFiles` must exist on the host before launch. If a path is missing, the sandbox exits with an error.
 
-A minimal example — the arguments are the same whether you use a flake or a `shell.nix`:
+A minimal example. The arguments are the same for a flake and for a `shell.nix`:
 
 ```nix
 mkSandbox {
@@ -163,63 +163,63 @@ mkSandbox {
 <summary><strong>Why set <code>CLAUDE_CONFIG_DIR</code> and not add <code>~/.claude.json</code> as a <code>rwFile</code>?</strong></summary>
 <br>
 
-`CLAUDE_CONFIG_DIR` is set to `$HOME/.claude` so that `~/.claude.json` is written inside the read/write `rwDir`. If you instead add `~/.claude.json` as a `rwFile`, when Claude updates configuration it writes temporary files to the ephemeral home root. It then tries to rename these to `~/.claude.json`, which can fail or behave unexpectedly because the temporary files land outside any declared `rwDir` or `rwFile`. This can occasionally corrupt the `~/.claude.json` file.
+The example sets `CLAUDE_CONFIG_DIR` to `$HOME/.claude` so that Claude writes `~/.claude.json` inside the read/write `rwDir`. If you add `~/.claude.json` as a `rwFile` instead, Claude writes temporary files to the ephemeral home root when it updates its configuration. Claude then tries to rename these files to `~/.claude.json`. The rename can fail or behave in an unexpected way, because the temporary files land outside every declared `rwDir` and `rwFile`. This can sometimes corrupt the `~/.claude.json` file.
 <br>
 <br>
 
-> **Note:** If you also run Claude outside the sandbox, set `CLAUDE_CONFIG_DIR=$HOME/.claude` globally too, otherwise the two will use different config locations and diverge.
+> **Note:** If you also run Claude outside the sandbox, set `CLAUDE_CONFIG_DIR=$HOME/.claude` globally too. Otherwise the two use different config locations and diverge.
 
 </details>
 
 ### Network restrictions
 
-The sandbox controls network access along two independent axes. `allowedDomains` governs outbound internet access; `allowedLocalPorts` governs access to host-local TCP services (databases, dev servers, and similar). They don't interact: allowing a domain never grants loopback access, and vice versa. By default internet access is unrestricted and all host-local services are blocked.
+The sandbox controls network access with two independent settings. `allowedDomains` controls outbound internet access. `allowedLocalPorts` controls access to host-local TCP services, such as databases and dev servers. The two settings do not interact. An allowed domain never gives loopback access, and an allowed local port never gives internet access. By default, internet access is open and all host-local services are blocked.
 
 #### Domain and internet access
 
-To restrict internet access, set `allowedDomains` — the sandbox can then only reach the domains you list. Leave it unset for open internet, or set it to `[ ]` to block all internet access.
+To restrict internet access, set `allowedDomains`. The sandbox can then reach only the domains you list. Leave it unset for open internet, or set it to `[ ]` to block all internet access.
 
 `allowedDomains` accepts two formats:
 
-- Attrset (recommended): map each domain to `"*"` (all HTTP methods allowed) or a list of permitted methods (e.g. `[ "GET" "HEAD" ]`).
-- List: `[ "anthropic.com" "sentry.io" ]` — equivalent to allowing all methods for each domain.
+- Attrset (recommended): map each domain to `"*"` (all HTTP methods allowed) or to a list of permitted methods (for example `[ "GET" "HEAD" ]`).
+- List: `[ "anthropic.com" "sentry.io" ]`. This allows all methods for each domain.
 
-Domains are suffix-matched, so `"anthropic.com"` will capture all `*.anthropic.com` subdomains.
+The sandbox matches domains by suffix, so `"anthropic.com"` also matches all `*.anthropic.com` subdomains.
 
-When `allowedDomains` is set, all HTTP/HTTPS traffic is routed through a filtering proxy that inspects requests by domain and HTTP method. The sandbox cannot bypass the proxy and DNS resolution is blocked. WebSocket connections are not permitted. Blocked requests are logged to `proxy.log` in the launch's [session directory](#session-directories).
+When you set `allowedDomains`, the sandbox routes all HTTP and HTTPS traffic through a filtering proxy. The proxy inspects each request by domain and HTTP method. The sandbox cannot avoid the proxy, and DNS resolution is blocked. WebSocket connections are not permitted. The proxy records blocked requests in `proxy.log`, in the launch's [session directory](#session-directories).
 
 Known limitations when the proxy is active:
 
 - SSH-based git remotes: see [Git](#git).
-- On macOS, `gh` and some other tools can't connect through the proxy: see [Caveats](#caveats).
+- On macOS, `gh` and some other tools cannot connect through the proxy: see [Caveats](#caveats).
 
 #### Host-local ports
 
-Host-local services (databases, dev servers, SSH agent, Docker socket, etc.) are blocked by default, and remain blocked even when `allowedDomains` is set. Use `allowedLocalPorts` to grant access to specific ports:
+Host-local services (databases, dev servers, the SSH agent, the Docker socket, and similar) are blocked by default. They stay blocked when you set `allowedDomains`. Use `allowedLocalPorts` to permit access to specific ports:
 
 ```nix
 allowedLocalPorts = [ 3000 5432 ];
 ```
 
-Set `allowedLocalPorts = null;` to allow all host-local TCP ports. Keep explicit port lists as narrow as possible; broad access can expose host-local services.
+Set `allowedLocalPorts = null;` to allow all host-local TCP ports. Keep explicit port lists as short as possible. Broad access can expose host-local services.
 
 ### UNIX-domain sockets
 
-UNIX-domain (AF_UNIX) sockets are denied by default: host sockets are how a sandboxed process would reach your SSH agent or other per-user services. Set `allowUnixSockets = true` to opt in — build tools that rendezvous over a domain socket (sbt/BSP, metals, nailgun) need it. Access then follows the filesystem grants on both platforms: paths the agent can write (the launch directory, `rwDirs`) allow creating and connecting to sockets, read-only paths (`roDirs`, `roFiles`, and the repository root when launching from a subdirectory) allow connecting only.
+UNIX-domain (AF_UNIX) sockets are denied by default, because a sandboxed process would use host sockets to reach your SSH agent or other per-user services. Set `allowUnixSockets = true` to permit them. Build tools that communicate over a domain socket (sbt/BSP, metals, nailgun) need this setting. Socket access then follows the filesystem grants on both platforms. In paths the agent can write (the launch directory and `rwDirs`), the agent can create sockets and connect to them. In read-only paths (`roDirs`, `roFiles`, and the repository root when you launch from a subdirectory), the agent can only connect.
 
-`allowNix = true` requires `allowUnixSockets = true`, because the nix daemon is reached over a UNIX-domain socket.
+`allowNix = true` requires `allowUnixSockets = true`, because the agent reaches the nix daemon over a UNIX-domain socket.
 
 ### Supported agents
 
-The sandbox has been tested with `claude-code` and `copilot-cli`. Other agents should work as long as they support token-based auth via an environment variable — see [Authentication](#authentication).
+The sandbox is tested with `claude-code` and `copilot-cli`. Other agents should work if they support token-based authentication through an environment variable. See [Authentication](#authentication).
 
 ## Authentication
 
-Because `$HOME` is masked, agents cannot reach your system keychain, browser sessions, or SSH keys. Launching from your home directory is the exception, and exposes all of it (see [Launching from your home directory](#launching-from-your-home-directory)). The recommended approach is to authenticate via environment variable. Interactive login flows (e.g. `claude /login`, `gh auth login`) may not work inside the sandbox.
+The sandbox masks `$HOME`, so agents cannot reach your system keychain, browser sessions, or SSH keys. A launch from your home directory is the exception, and exposes all of it (see [Launching from your home directory](#launching-from-your-home-directory)). The recommended method is to authenticate with an environment variable. Interactive login flows (for example `claude /login` and `gh auth login`) may not work inside the sandbox.
 
 ### Environment variable tokens (recommended)
 
-Export your token in the host terminal before launching the sandbox — tokens are evaluated at runtime to prevent them from leaking into the Nix store:
+Export your token in the host terminal before you launch the sandbox. The sandbox reads tokens at runtime, so they do not leak into the Nix store:
 
 ```
 # Claude Code
@@ -229,7 +229,7 @@ export CLAUDE_CODE_OAUTH_TOKEN="<your_token_here>"
 export GITHUB_TOKEN="<your_token_here>"
 ```
 
-Pass the variable reference (not the value) into `env`:
+Pass the variable reference, not the value, into `env`:
 
 ```nix
 env = {
@@ -238,7 +238,7 @@ env = {
 };
 ```
 
-Alternatively, if you store your secret in a file (for example if you use sops), you can set a command that will read the secret at runtime:
+If you store your secret in a file instead (for example with sops), you can set a command that reads the secret at runtime:
 
 ```nix
 env = {
@@ -249,17 +249,17 @@ env = {
 
 ### Credential files via `rwDirs`
 
-If your agent stores credentials in files (e.g. Claude Code uses `~/.claude/`), you can run the login flow unsandboxed first, then expose the credential directory via `rwDirs`. The sandboxed agent will pick up the cached credentials.
+If your agent stores credentials in files (Claude Code uses `~/.claude/`), run the login flow outside the sandbox first, then expose the credential directory with `rwDirs`. The sandboxed agent then reads the cached credentials.
 
 <details>
 <summary><strong>On macOS you will need to export the credentials from the Keychain first</strong></summary>
 
-On macOS, Claude Code stores credentials in the system Keychain rather than in files. Since the sandbox cannot access the Keychain, the environment variable approach above is the simplest option.
+On macOS, Claude Code stores credentials in the system Keychain, not in files. The sandbox cannot read the Keychain, so the environment variable method above is the simplest option.
 
-If you can't use an environment variable token, you can export the Keychain credentials to a file that the sandbox can read:
+If you cannot use an environment variable token, you can export the Keychain credentials to a file that the sandbox can read:
 
 ```bash
-# First Log in outside the sandbox first
+# Log in outside the sandbox first
 claude /login
 ```
 
@@ -285,39 +285,39 @@ if most_recent: print(most_recent[0])
 " > ~/.claude/.credentials.json
 ```
 
-This finds all Claude Code credential entries in the Keychain and exports the one with the most recent expiry.
+This finds all Claude Code credential entries in the Keychain and exports the entry with the most recent expiry.
 
-Then expose `~/.claude` via `rwDirs`. The sandboxed agent will read credentials from `~/.claude/.credentials.json` when Keychain access is unavailable.
+Then expose `~/.claude` with `rwDirs`. The sandboxed agent reads credentials from `~/.claude/.credentials.json` when it cannot reach the Keychain.
 
-Note: OAuth access tokens expire. You will need to re-run the export command periodically to refresh the credentials file.
+Note: OAuth access tokens expire. Run the export command again from time to time to refresh the credentials file.
 
 </details>
 
 ## Git
 
-The sandbox allows access to the local git directory, including from within worktrees. Switching branches, reading history and other local operations work without any extra configuration. Committing requires a declared git identity — see [Git identity](#git-identity).
+The sandbox allows access to the local git directory, also from inside worktrees. Branch switches, history reads and other local operations work with no extra configuration. A commit needs a declared git identity. See [Git identity](#git-identity).
 
 ### Remote access (push / pull / fetch)
 
-Interacting with remotes requires authentication. The recommended approach is to use HTTPS rather than SSH based remotes. The simplest way to authenticate is by passing a token via `env` (e.g. `GITHUB_TOKEN`), but you can also configure a [git credential helper](https://git-scm.com/doc/credential-helpers) to store your token for reuse so you don't have to pass it via environment variable.
+Remote operations need authentication. Use HTTPS remotes rather than SSH remotes. The simplest method is to pass a token through `env`, for example `GITHUB_TOKEN`. You can also configure a [git credential helper](https://git-scm.com/doc/credential-helpers) that stores your token for reuse, so that you do not pass it through an environment variable.
 
-SSH based remotes (e.g. `git@github.com:...`) won't work by default — SSH keys are not accessible because `$HOME` is masked, and when `allowedDomains` is set the proxy only handles HTTP/HTTPS so SSH traffic is blocked entirely. You can expose your SSH directory via `rwDirs` (e.g. `$HOME/.ssh`) and leave `allowedDomains` unset (open network) to enable SSH based git remotes, but this is not recommended.
+SSH remotes (for example `git@github.com:...`) do not work by default. The sandbox masks `$HOME`, so the agent cannot read your SSH keys. When you set `allowedDomains`, the proxy handles only HTTP and HTTPS, so it blocks all SSH traffic. To use SSH remotes, expose your SSH directory with `rwDirs` (for example `$HOME/.ssh`) and leave `allowedDomains` unset for open network access. This is not recommended.
 
 ### Git identity
 
-`$HOME` is masked inside the sandbox, so your global gitconfig is not visible and git's `user.name` / `user.email` are unset. The sandbox never fabricates an identity if none are provided. This means `git commit` without a declared identity fails loudly (`fatal: ... auto-detection is disabled`).
+The sandbox masks `$HOME`, so git cannot read your global gitconfig, and `user.name` and `user.email` are unset. The sandbox never invents an identity. If you declare no identity, `git commit` fails loudly (`fatal: ... auto-detection is disabled`).
 
-To get correctly-attributed commits, declare a real identity in one of two ways:
+For correctly attributed commits, declare a real identity in one of two ways:
 
-- **Bind your host gitconfig read-only via `roFiles`** (recommended). Set your identity on the host (`git config --global user.name "..."; git config --global user.email "..."`), then add:
+- **Bind your host gitconfig read-only with `roFiles`** (recommended). Set your identity on the host (`git config --global user.name "..."; git config --global user.email "..."`), then add:
 
   ```nix
       roFiles = [ "$HOME/.config/git/config" ];  # or "$HOME/.gitconfig"
   ```
 
-  git reads `[user]` through its normal global-config lookup. Because the file is read-only inside the sandbox, the agent can't set `core.hooksPath`, `core.fsmonitor`, or `alias.*` entries that would otherwise fire host code on the next host `git` invocation.
+  git reads `[user]` through its normal global-config lookup. The file is read-only inside the sandbox, so the agent cannot set `core.hooksPath`, `core.fsmonitor`, or `alias.*` entries. Such entries would run host code at your next host `git` command.
 
-- **Via `env`** (fully self-contained, useful when you can't bind a host file):
+- **With `env`** (fully self-contained, useful when you cannot bind a host file):
 
   ```nix
       env = {
@@ -328,42 +328,42 @@ To get correctly-attributed commits, declare a real identity in one of two ways:
       };
   ```
 
-> **Note:** do not run `git config --global ...` inside the sandbox — `$HOME` is an ephemeral tmpfs there, so it won't persist. Set your identity on the host and bind it, or use `env`.
+> **Note:** do not run `git config --global ...` inside the sandbox. `$HOME` is an ephemeral tmpfs there, so the change does not persist. Set your identity on the host and bind it, or use `env`.
 
 ### Read-only paths in the git directory
 
-A few paths inside the git directory are read-only inside the sandbox: `hooks/`, `config`, `config.worktree`, and the pointer files recording where a worktree's or submodule's git directory lives. This is a security measure, explained under [Security](#what-it-protects-against).
+Some paths inside the git directory are read-only inside the sandbox: `hooks/`, `config`, `config.worktree`, and the pointer files that record the location of a worktree's or a submodule's git directory. This is a security measure. See [Security](#what-it-protects-against).
 
-Everything else stays writable, so commits, fetches, branch switching and history reads all work as normal. Two operations don't:
+All other paths stay writable, so commits, fetches, branch switches and history reads work as normal. Two operations do not work:
 
-- `git config` writing to the repo config. Set repo-level config on the host instead.
-- `git worktree remove` and `git worktree prune`, because protecting a worktree's pointer file makes its directory non-removable. Run these on the host.
+- `git config` cannot write to the repo config. Set repo-level config on the host instead.
+- `git worktree remove` and `git worktree prune` fail, because the protected pointer file makes the worktree directory impossible to remove. Run these commands on the host.
 
 ## Using Nix inside the sandbox
 
-Set `allowNix = true` to let the agent invoke nix commands from inside the sandbox. The agent is given access to the host's nix daemon and the full nix store. `pkgs.nix` is added to the agent's PATH automatically — you don't need to put it in `allowedPackages`. Because the daemon is reached over a UNIX-domain socket, `allowNix = true` requires `allowUnixSockets = true` — see [UNIX-domain sockets](#unix-domain-sockets).
+Set `allowNix = true` to let the agent run nix commands inside the sandbox. The sandbox gives the agent access to the host's nix daemon and the full nix store. The sandbox adds `pkgs.nix` to the agent's PATH, so you do not put it in `allowedPackages`. The agent reaches the daemon over a UNIX-domain socket, so `allowNix = true` requires `allowUnixSockets = true`. See [UNIX-domain sockets](#unix-domain-sockets).
 
 What you need to configure:
 
-- **Flake CLI features:** Your nix config is not visible inside the sandbox. Either bind it via `roFiles = [ "/etc/nix/nix.conf" ]` to inherit your whole config or set `env.NIX_CONFIG = "experimental-features = nix-command flakes"` to enable just the flake CLI.
+- **Flake CLI features:** the sandbox does not expose your nix config. Bind it with `roFiles = [ "/etc/nix/nix.conf" ]` to inherit your whole config, or set `env.NIX_CONFIG = "experimental-features = nix-command flakes"` to enable only the flake CLI.
 
-- **Nix state directories:** The client caches the flake registry and downloaded tarballs under `$HOME/.cache/nix`, writes registry overrides to `$HOME/.config/nix`, and stores per-user profiles under `$HOME/.local/share/nix`. Add these to `rwDirs` if you want any of that to persist across invocations.
+- **Nix state directories:** the client caches the flake registry and downloaded tarballs in `$HOME/.cache/nix`. It writes registry overrides to `$HOME/.config/nix`. It stores per-user profiles in `$HOME/.local/share/nix`. Add these directories to `rwDirs` if you want that state to persist between launches.
 
-- **Allowed domains:** When `allowedDomains` is set, the nix client itself needs `channels.nixos.org`, `github.com` + `raw.githubusercontent.com`, and `cache.nixos.org` to reliably fetch packages and flakes.
+- **Allowed domains:** when you set `allowedDomains`, the nix client itself needs `channels.nixos.org`, `github.com`, `raw.githubusercontent.com`, and `cache.nixos.org` to fetch packages and flakes reliably.
 
 A complete example is at [`shells/claude-nix.shell.nix`](shells/claude-nix.shell.nix).
 
-> **Security note:** `allowNix = true` weakens the security posture of the sandbox. The full Nix store is exposed and any executable in the nix store can be run by the agent — `allowedPackages` no longer restricts what the agent can *execute*, only what's on `PATH`. The `nix-daemon` runs outside the sandbox, so its own network activity — downloads of prebuilt packages from the caches it's configured to use — bypasses `allowedDomains`.
+> **Security note:** `allowNix = true` weakens the security posture of the sandbox. The full Nix store is exposed, and the agent can run any executable in it. `allowedPackages` then limits only what is on `PATH`, not what the agent can execute. The `nix-daemon` runs outside the sandbox, so its own network activity does not obey `allowedDomains`. This activity includes downloads of prebuilt packages from the caches in the daemon's configuration.
 
 ## Common patterns / recipes
 
 ### Python with uv
 
-uv needs access to its cache dirs via `rwDirs`, otherwise it will re-download dependencies on every invocation. On NixOS, pre-compiled wheels will also fail to find glibc unless you thread `LD_LIBRARY_PATH` through from the host and use a nix-managed Python instead of a uv-managed one. See [`shells/claude-uv.shell.nix`](shells/claude-uv.shell.nix) for the full setup.
+uv needs access to its cache directories through `rwDirs`. Without them, uv downloads the dependencies again at every launch. On NixOS, pre-compiled wheels also fail to find glibc. To prevent this, pass `LD_LIBRARY_PATH` through from the host and use a nix-managed Python rather than a uv-managed one. See [`shells/claude-uv.shell.nix`](shells/claude-uv.shell.nix) for the full setup.
 
 ### Node.js with npm
 
-For Node, you can simply add the npm cache as a `rwDir`.
+For Node, add the npm cache as a `rwDir`.
 
 ```nix
 allowedPackages = [ pkgs.nodejs pkgs.npm ];
@@ -372,37 +372,37 @@ rwDirs = [ "$HOME/.npm" ]; # Allow npm cache
 
 ## Troubleshooting
 
-If you get stuck, or suspect the agent can't access a file or folder it should have access to by default, please raise an issue. Attaching the session directory described below is the most useful thing you can include.
+If you have a problem, or you think the agent cannot access a file or folder that the defaults should permit, please raise an issue. The most useful attachment is the session directory described below.
 
 ### Session directories
 
-Every launch writes a directory recording what it did, under `$XDG_STATE_HOME/agent-sandbox`, or `~/.local/state/agent-sandbox` if that isn't set. Each is named `<timestamp>-<pid>-<outName>`, so the newest is last:
+Every launch writes a directory that records what it did. The location is `$XDG_STATE_HOME/agent-sandbox`, or `~/.local/state/agent-sandbox` if `$XDG_STATE_HOME` is unset. The name of each directory is `<timestamp>-<pid>-<outName>`, so the newest is last:
 
 ```bash
 ls -t ~/.local/state/agent-sandbox | head
 ```
 
-Start with `launch.log`. It records the version of agent-sandbox.nix the wrapper was built from, what the wrapper was asked for, what your declared paths expanded to on this machine, any warnings, and the status the sandbox exited with.
+Read `launch.log` first. It records the version of agent-sandbox.nix that built the wrapper, the configuration the wrapper received, the expansion of your declared paths on this machine, all warnings, and the exit status of the sandbox.
 
-The rest of the directory is the configuration the launch was assembled from, so it also answers what was actually allowed:
+The other files hold the configuration that the launch was assembled from, so they also show what was allowed:
 
 | File | Platform | What it holds |
 |---|---|---|
 | `launch.log` | both | What was requested, what was decided, how it ended |
 | `proxy.log` | both | The filtering proxy's output, including blocked domains |
-| `seatbelt.sb` | macOS | The seatbelt profile `sandbox-exec` enforced |
+| `seatbelt.sb` | macOS | The seatbelt profile that `sandbox-exec` enforced |
 | `bwrap.args` | Linux | The bubblewrap arguments, including every bind |
-| `network.json` | Linux | The firewall rules and routing applied to the sandbox |
+| `network.json` | Linux | The firewall rules and the routing applied to the sandbox |
 
-Directories are kept for the newest 25 launches and pruned at the next launch. A session whose sandbox is still running is never pruned, however old it is.
+The sandbox keeps the directories of the newest 25 launches and prunes the others at the next launch. It never prunes the directory of a session whose sandbox still runs, whatever its age.
 
-Nothing in a session directory is secret, so it is safe to attach to an issue. Values from `env` never reach it: they are resolved by the launcher's shell and passed straight to the sandbox, and only their names are recorded.
+A session directory holds no secrets, so it is safe to attach to an issue. The values from `env` never reach it. The launcher's shell resolves the values and passes them straight to the sandbox, and only the names are recorded.
 
 ### Filesystem access issues
 
-If the agent fails to perform a tool call, or file read/write, the sandbox is likely blocking a path that needs to be added to `rwDirs` / `rwFiles` (or `roDirs` / `roFiles` for read-only access).
+If a tool call, a file read, or a file write fails, the sandbox probably blocks a path. Add the path to `rwDirs` or `rwFiles`, or to `roDirs` or `roFiles` for read-only access.
 
-The easiest way to explore the sandbox environment is to wrap `bash` itself with the same config as your agent and poke around interactively.
+The easiest way to examine the sandbox environment is to wrap `bash` itself with the same config as your agent, and then explore it interactively.
 
 ```nix
 # mirror your agent's config
@@ -417,34 +417,34 @@ bash-sandboxed = sandbox.mkSandbox {
 };
 ```
 
-Running `bash-sandboxed` drops you into a shell with exactly the same filesystem view and restrictions your agent will see. Try:
+`bash-sandboxed` starts a shell with exactly the same filesystem view and the same restrictions as your agent. Try these commands:
 
 ```bash
 touch /tmp/test && rm /tmp/test   # /tmp should be writable
 curl https://example.com          # depends on your allowedDomains setting
 which git                         # allowedPackages should be on PATH
-ls /some/other/path               # should fail — confirming sandbox is active
-cat ~/.ssh/id_ed25519             # should fail - shouldn't be able to read unspecified files in $HOME
+ls /some/other/path               # should fail, confirming the sandbox is active
+cat ~/.ssh/id_ed25519             # should fail: undeclared files in $HOME are not readable
 ls $HOME                          # empty dir with symlinks to rwDirs
 touch $HOME/.test && rm $HOME/.test  # writes allowed (but ephemeral)
 ls $HOME/.claude                  # should work if in rwDirs (symlinked)
-curl https://httpbin.org/get      # allowed domain — should work
-curl https://example.com          # blocked domain — should fail
+curl https://httpbin.org/get      # allowed domain: should work
+curl https://example.com          # blocked domain: should fail
 ```
 
-See [`debug/bash.shell.nix`](debug/bash.shell.nix) for a ready-to-use template (has `allowedDomains` set to `httpbin.org` for testing).
+See [`debug/bash.shell.nix`](debug/bash.shell.nix) for a template you can use directly. It sets `allowedDomains` to `httpbin.org` for testing.
 
 ### Network access issues
 
-If you've set `allowedDomains` and requests are failing, check which domains are being blocked. The proxy's log is in the session directory for the run:
+If you set `allowedDomains` and requests fail, check which domains are blocked. The proxy's log is in the session directory for the run:
 
 ```bash
 tail -f "$(ls -dt ~/.local/state/agent-sandbox/* | head -1)/proxy.log"
 ```
 
-You may need to add them to `allowedDomains`.
+You may need to add those domains to `allowedDomains`.
 
-On macOS, if `gh` (or another Go-based tool) fails with a certificate error rather than a blocked request, that's the filtering proxy's certificate being rejected rather than a domain problem; see [Caveats](#caveats).
+On macOS, `gh` and other Go-based tools can fail with a certificate error rather than a blocked request. The tool rejects the filtering proxy's certificate, and the domain is not the problem. See [Caveats](#caveats).
 
 ### macOS: unexpected sandbox denials
 
@@ -454,82 +454,82 @@ After a failure, you can query the system log for sandbox denials:
 log show --predicate 'eventMessage CONTAINS "deny"' --last 1m
 ```
 
-If something is blocked that should have been allowed by your sandbox config, this log can show which path or operation `sandbox-exec` denied.
+If the sandbox blocks something that your config should allow, this log can show which path or operation `sandbox-exec` denied.
 
 ### macOS: localhost service denials
 
-If a sandboxed process can't reach another sandboxed process on `localhost:<port>`, add that port to `allowedLocalPorts` (or allow all host-local TCP ports with `allowedLocalPorts = null;`). This is macOS-only: `sandbox-exec` shares localhost with the host, so it can't tell sandbox-internal services apart from host-local ones — see [Linux vs macOS](#linux-vs-macos) for the full explanation. The same access also opens those host-local ports, so keep explicit lists narrow.
+If a sandboxed process cannot reach another sandboxed process on `localhost:<port>`, add that port to `allowedLocalPorts`. You can also allow all host-local TCP ports with `allowedLocalPorts = null;`. This applies to macOS only. `sandbox-exec` shares localhost with the host, so it cannot tell sandbox-internal services apart from host-local ones. See [Linux vs macOS](#linux-vs-macos) for the full explanation. The same access also opens those host-local ports, so keep explicit lists narrow.
 
 ## Security
 
-This section explains what the sandbox is and isn't designed to protect against, so you can decide whether it fits your situation.
+This section describes what the sandbox protects against, and what it does not protect against, so that you can decide whether it fits your situation.
 
 ### What it protects against
 
-If the agent does something it shouldn't — runs a bad prompt, processes a malicious file, picks up a compromised dependency, or hallucinates a destructive command — the sandbox stops the damage from spreading outside the project directory. Concretely:
+The agent can do something it should not do. It can run a bad prompt, process a malicious file, use a compromised dependency, or invent a destructive command. In each case, the sandbox keeps the damage inside the project directory. In detail:
 
-- It can't read your SSH keys, browser sessions, password manager, other projects' source code, or anything else in your home directory outside the paths you explicitly expose. This assumes you launch the agent from a project directory; launching from your home directory exposes all of it, and says so before it starts.
-- It can't delete or modify files outside the project directory and your declared `rwDirs` / `rwFiles`.
-- It can't reach the internet outside the domains you allow (when `allowedDomains` is set).
-- It can't talk to local services on your laptop — databases, dev servers, the SSH agent, other terminal windows, etc. — unless you explicitly allow host-local TCP ports with `allowedLocalPorts`.
-- It can't leave code behind that runs on your host the next time you use git. A writable git directory would allow that: a file in `hooks/`, a `core.hooksPath` or `alias.*` entry in a config file, or a pointer file aimed at a git directory the agent controls. Those paths are read-only for the repo you launch in.
-- It can only run the tools you list in `allowedPackages` (unless you set `allowNix = true` — see [Using Nix inside the sandbox](#using-nix-inside-the-sandbox)).
-- It can't see your other running programs, read environment variables they have set, or interfere with other terminals you have open.
+- The agent cannot read your SSH keys, browser sessions, password manager, the source code of other projects, or anything else in your home directory outside the paths you expose explicitly. This assumes that you launch the agent from a project directory. A launch from your home directory exposes all of it, and the sandbox says so before it starts.
+- The agent cannot delete or modify files outside the project directory and your declared `rwDirs` and `rwFiles`.
+- The agent cannot reach internet domains outside the ones you allow, when you set `allowedDomains`.
+- The agent cannot talk to local services on your laptop (databases, dev servers, the SSH agent, other terminal windows, and similar), unless you allow host-local TCP ports explicitly with `allowedLocalPorts`.
+- The agent cannot leave code behind that runs on your host at your next git command. A writable git directory would permit that: a file in `hooks/`, a `core.hooksPath` or `alias.*` entry in a config file, or a pointer file aimed at a git directory the agent controls. Those paths are read-only for the repo you launch in.
+- The agent can run only the tools you list in `allowedPackages`, unless you set `allowNix = true`. See [Using Nix inside the sandbox](#using-nix-inside-the-sandbox).
+- The agent cannot see your other running programs, read the environment variables they have set, or interfere with your other open terminals.
 
 ### What it doesn't protect against
 
-The sandbox is an **isolation** boundary, not an **anonymity** boundary, and not a defense against an attacker who has already taken over your machine in some other way.
+The sandbox is an isolation boundary. It is not an anonymity boundary, and it is not a defense against an attacker who has already taken over your machine in some other way.
 
-- The agent can fingerprint your machine. It can see your hostname, hardware model, CPU, RAM, OS version, and rough network details. If you need the agent to *not know which machine it's running on*, this isn't the tool — you want a VM or a separate device.
-- Anything you hand the agent, it has. If you expose your `~/.claude` directory (or any credential file) via `rwDirs`, or pass a token through `env`, the agent can read it — that's how it logs in. A compromised agent has the same access to those credentials as your shell does. Treat this the way you'd treat handing the token to any other CLI tool you didn't write yourself.
-- The agent can edit its own sandbox config. `flake.nix` lives inside the project directory and is writable from inside the sandbox. An agent could weaken its own restrictions for the *next* session. Changes don't take effect until you re-enter the dev shell, so it's worth reviewing `git diff` before you do.
-- Only the repo you launch in is protected from git hook injection. Other repos that happen to sit under your launch directory are not: a repo nested inside it is writable like anything else there, hooks included.
-- No defense against root or kernel bugs. If something on your machine has already gained administrator-level access, or there's a deeper bug in the operating system itself, this sandbox can't stop it.
+- The agent can fingerprint your machine. It can see your hostname, hardware model, CPU, RAM, OS version, and rough network details. If the agent must not know which machine it runs on, this is not the tool. Use a VM or a separate device.
+- The agent has everything you hand it. If you expose your `~/.claude` directory (or any credential file) through `rwDirs`, or pass a token through `env`, the agent can read it. That is how it logs in. A compromised agent has the same access to those credentials as your shell. Treat this the way you would treat handing the token to any other CLI tool you did not write yourself.
+- The agent can edit its own sandbox config. `flake.nix` lives inside the project directory, and the sandbox permits writes to it. An agent could weaken its own restrictions for the next session. The changes take effect only when you enter the dev shell again, so it is worth reading `git diff` first.
+- The sandbox protects only the repo you launch in from git hook injection. It does not protect other repos that sit under your launch directory. A nested repo is writable like anything else there, and this includes its hooks.
+- The sandbox is no defense against root access or kernel bugs. If something on your machine has already gained administrator-level access, or the operating system itself has a deeper bug, this sandbox cannot stop it.
 
 ### Launching from your home directory
 
-The launch directory is always read-write, so launching the agent from `$HOME` gives it your whole home directory: ssh keys, credential files, browser state, every other project. None of the masking described above applies in that session.
+The launch directory is always read-write. A launch from `$HOME` therefore gives the agent your whole home directory: ssh keys, credential files, browser state, and every other project. None of the masking described above applies in that session.
 
-It also means the `.git` directory of every repo under your home is writable, and only the repo you launch in is protected from hook injection. A write to any other repo's hooks or config runs code on your host the next time you use git there.
+The `.git` directory of every repo under your home is then writable, and the sandbox protects only the repo you launch in from hook injection. A write to the hooks or the config of any other repo runs code on your host at your next git command there.
 
-This is allowed, because it follows from what the launch directory means, but sandbox will ask for your permission first.
+The sandbox allows this, because it follows from what the launch directory means, but it asks for your permission first.
 
-A launch directory *above* `$HOME` (`/`, `/home`, `/Users`) is refused outright. Those paths reach past your own home, and no confirmation covers that.
+The sandbox refuses a launch directory above `$HOME` (`/`, `/home`, `/Users`) outright. Those paths reach past your own home, and no confirmation covers that.
 
 ### Specific things worth being aware of
 
-- Launching from `$HOME` turns off home masking entirely — see [Launching from your home directory](#launching-from-your-home-directory). Everything below assumes you launch from a project directory.
-- Your username and home directory path are visible to the agent. This is unavoidable — the agent needs to know where `$HOME/.claude` resolves to. If your username is itself sensitive, this isn't the right tool.
-- All of `/nix/store` is readable, not just your allowed packages. Only execution is restricted to your allowlist. The Nix store is normally world-readable on any system, so this matches existing behavior, but it does mean the agent can list every package you've built.
-- `/tmp` is shared with the host. The agent can see (but not connect to) sockets and files other programs leave there. Don't put secrets in `/tmp` while the sandbox is running.
+- A launch from `$HOME` turns off home masking entirely. See [Launching from your home directory](#launching-from-your-home-directory). Everything below assumes that you launch from a project directory.
+- Your username and home directory path are visible to the agent. This is unavoidable, because the agent needs to know where `$HOME/.claude` resolves to. If your username is itself sensitive, this is not the right tool.
+- All of `/nix/store` is readable, not only your allowed packages. The allowlist restricts execution only. The Nix store is normally world-readable on any system, so this matches existing behavior, but it does mean that the agent can list every package you have built.
+- `/tmp` is shared with the host. The agent can see the sockets and files that other programs leave there, but it cannot connect to them. Do not put secrets in `/tmp` while the sandbox runs.
 
 ### Linux vs macOS
 
-Both platforms enforce the same default protections. The one practical difference is localhost: on Linux, bubblewrap gives the sandbox its own network namespace, so services started inside the sandbox can reach each other on any localhost port freely. On macOS, `sandbox-exec` shares localhost with the host, so sandbox-internal localhost communication requires the port to be listed in `allowedLocalPorts` or all host-local ports to be allowed with `allowedLocalPorts = null;` — the same access also opens those host-local ports.
+Both platforms enforce the same default protections. The one practical difference is localhost. On Linux, bubblewrap gives the sandbox its own network namespace, so services started inside the sandbox can reach each other freely on any localhost port. On macOS, `sandbox-exec` shares localhost with the host. Localhost communication inside the sandbox therefore needs the port in `allowedLocalPorts`, or all host-local ports allowed with `allowedLocalPorts = null;`. The same access also opens those host-local ports.
 
 ### Is this the right tool for me?
 
 If your threat model is *"I want my AI agent to not accidentally destroy my work, leak my private files, or talk to random places on the internet,"* this sandbox is a good fit.
 
-If your threat model is *"I assume the agent is actively malicious and need it to be unable to identify my specific machine or my real user account,"* you'll want a VM with a throwaway user account or a separate machine.
+If your threat model is *"I assume the agent is actively malicious and need it to be unable to identify my specific machine or my real user account,"* you want a VM with a throwaway user account, or a separate machine.
 
 ## Caveats
 
-- `sandbox-exec` is deprecated on macOS. It remains the only native unprivileged sandboxing mechanism and currently works on macOS 26 (Tahoe) and older, but may break in a future release.
-- Symlinks inside `rwDirs`, `rwFiles`, `roDirs`, and `roFiles` are only followed to already-permitted paths. A symlink is usable only if its target is the Nix store, the working directory, the Git directory, or another declared bind. Anything else is blocked — this prevents an agent from planting a symlink during a session to expand its own sandbox on the next startup (e.g. `~/.claude/evil -> /etc/shadow`). To expose a non-permitted path that's currently reached via a symlink, declare it explicitly as a `rwDir` / `rwFile` / `roDir` / `roFile`. Symlinks into the Nix store are read-only.
-- On macOS, when `allowedDomains` is set, `gh` (the GitHub CLI) fails HTTPS requests with a certificate error: the filtering proxy uses its own certificate, which `git` accepts but `gh` (and other Go tools) reject on macOS. Linux is unaffected.
-- Tested on x86_64-linux and aarch64-darwin. Other architectures should work but are untested.
+- `sandbox-exec` is deprecated on macOS. It remains the only native unprivileged sandboxing mechanism, and it currently works on macOS 26 (Tahoe) and older, but a future release may break it.
+- The sandbox follows a symlink inside `rwDirs`, `rwFiles`, `roDirs`, or `roFiles` only to an already-permitted path. A symlink is usable only if its target is the Nix store, the working directory, the Git directory, or another declared bind. Everything else is blocked. This prevents an agent from planting a symlink during a session to expand its own sandbox at the next startup (for example `~/.claude/evil -> /etc/shadow`). To expose a path that is not permitted and that a symlink currently reaches, declare the path explicitly as a `rwDir`, `rwFile`, `roDir`, or `roFile`. A symlink into the Nix store is read-only.
+- On macOS, when you set `allowedDomains`, `gh` (the GitHub CLI) fails HTTPS requests with a certificate error. The filtering proxy uses its own certificate. `git` accepts this certificate, but `gh` and other Go tools reject it on macOS. Linux is unaffected.
+- Tested on x86_64-linux and aarch64-darwin. Other architectures should work, but they are untested.
 
 ## Similar projects
 
 There are several other tools for sandboxing AI agents. Here are a few:
 
-[Anthropic sandbox-runtime (srt)](https://github.com/anthropic-experimental/sandbox-runtime/tree/main) — An npm package that also uses bubblewrap on Linux and sandbox-exec on macOS.
+[Anthropic sandbox-runtime (srt)](https://github.com/anthropic-experimental/sandbox-runtime/tree/main): an npm package that also uses bubblewrap on Linux and sandbox-exec on macOS.
 
-[jail.nix](https://git.sr.ht/~alexdavid/jail.nix) — A nix library for building bubblewrap sandboxes. It's not built to be agent-specific but can be used for agent sandboxing. Linux only.
+[jail.nix](https://git.sr.ht/~alexdavid/jail.nix): a nix library that builds bubblewrap sandboxes. It is not agent-specific, but you can use it to sandbox agents. Linux only.
 
-[jailed-agents](https://github.com/andersonjoseph/jailed-agents) — A nix library that provides pre-configured per-agent sandboxes using bubblewrap. Linux only.
+[jailed-agents](https://github.com/andersonjoseph/jailed-agents): a nix library that provides pre-configured per-agent sandboxes with bubblewrap. Linux only.
 
-[agent-box](https://github.com/fletchgqc/agentbox) — A Rust CLI that uses disposable containers with Jujutsu or Git worktrees. macOS and Linux.
+[agent-box](https://github.com/fletchgqc/agentbox): a Rust CLI that uses disposable containers with Jujutsu or Git worktrees. macOS and Linux.
 
-[ai-jail](https://github.com/akitaonrails/ai-jail) — A Rust CLI that sandboxes agents using bubblewrap (with Landlock and seccomp) on Linux and sandbox-exec on macOS. Configured via a TOML file in the project directory.
+[ai-jail](https://github.com/akitaonrails/ai-jail): a Rust CLI that sandboxes agents with bubblewrap (with Landlock and seccomp) on Linux and sandbox-exec on macOS. It is configured with a TOML file in the project directory.
