@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
-# Test: /Library/Preferences is not reachable from inside the sandbox.
-# Regression for SANDBOX-FINDINGS.md §3 — the plists under that tree leak
-# host identity (hostname, MAC addresses, paired Bluetooth devices, recent
-# users, WiFi private-MAC rotation keys), and the previous (subpath
-# "/Library/Preferences") allow made them all readable. /usr/bin/plutil
-# was also exec-allowed, giving a one-liner extraction primitive.
+# Test: /Library/Preferences is not reachable from inside the sandbox. Its
+# plists leak host identity (hostname, MAC addresses, paired devices).
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

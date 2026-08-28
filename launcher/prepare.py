@@ -1,24 +1,5 @@
-"""First entry point. Prints the session directory and nothing else.
-
-The order is load-bearing. The session directory is created before anything can
-refuse the launch, so a refused run still has somewhere to record why. The rest
-of the session is acquired before the configuration is computed, because the
-computed argv and profile quote its paths and its port.
-
-Owning that order is this module's job, which is why the acquisitions are called
-one at a time here rather than bundled behind one function in session_state. It
-is also where the rollback lives: each acquisition registers the call that undoes
-it, and pop_all discards the lot once the launch is committed. Everything between
-the first acquisition and that commit is unwound on any exception, including
-KeyboardInterrupt, because nothing else would. The stub's EXIT trap is not armed
-until prepare_launch has returned.
-
-The platform is decided once, on the spec, and everything below that fold is one
-platform's types throughout. It cannot fold any later: reading the host is
-already platform-specific, so a fold after it would have to re-establish the
-platform on the spec and the host state together, which is the thing this
-replaced.
-"""
+"""First entry point. Prints the session directory and nothing else: the stub
+captures stdout."""
 
 import os
 import sys
@@ -59,12 +40,6 @@ from launcher.lib.session_state import (
 
 
 def _refuse_launch(session_dir: Path, refusals: tuple[str, ...]) -> None:
-    """Report every reason and exit, or return and let the launch continue.
-
-    The session directory is named on the way out. It is the one moment the
-    wrapper mentions it, and the moment someone has a reason to look: nothing
-    is printed about it on a successful launch.
-    """
     if not refusals:
         return
     write_launch_refusals(session_dir / LAUNCH_LOG, refusals)
@@ -90,9 +65,8 @@ def _prepare_launch_linux(spec: SandboxBuildSpecLinux, session_dir: Path) -> Pat
         session = SessionState(session_dir=session_dir, proxy=proxy)
         config = linux_compute.compute_launch_config(spec, host, session)
         write_launch_config_linux(config, session)
-        # Committed: the proxy has to outlive this process, and from here it is
-        # cleanup_launch's to kill, off the pid just written to the session
-        # directory.
+        # Committed: from here the proxy is cleanup_launch's to kill, off the
+        # pid just written to the session directory.
         stack.pop_all()
 
     write_launch_outcome(session_dir / LAUNCH_LOG, host, session, config.warnings)
@@ -115,8 +89,6 @@ def _prepare_launch_darwin(spec: SandboxBuildSpecDarwin, session_dir: Path) -> P
         )
         config = darwin_compute.compute_launch_config(spec, host, session)
         write_launch_config_darwin(config, session)
-        # As above. The sandbox home outlives this process too; the config lists
-        # it for removal at exit.
         stack.pop_all()
 
     write_launch_outcome(session_dir / LAUNCH_LOG, host, session, config.warnings)
@@ -126,19 +98,14 @@ def _prepare_launch_darwin(spec: SandboxBuildSpecDarwin, session_dir: Path) -> P
 
 def prepare_launch(spec_path: Path, now: datetime) -> Path:
     spec = load_build_spec(spec_path)
-    # Ahead of the fold: it has to exist before anything can refuse the launch,
-    # and its name is a function of fields both platforms share.
+    # Created before anything can refuse the launch, so a refused run still
+    # has somewhere to record why.
     session_dir = create_session_dir(spec, now)
     log_file = session_dir / LAUNCH_LOG
-    # Ahead of the fold too, and of reading the host, so that whatever happens
-    # next has somewhere to be recorded against. os.getcwd() rather than
-    # host.cwd for the same reason: the host has not been read yet.
     write_launch_request(log_file, session_dir, spec, Path(os.getcwd()), now)
 
-    # SystemExit passes through unrecorded on purpose: a refusal has already
-    # written its own section, and the proxy failures name proxy.log. What is
-    # left is a bug here, a host that could not be read, or an interrupt, none
-    # of which is recorded anywhere but the terminal.
+    # SystemExit passes through unrecorded: a refusal has already written its
+    # own section, and the proxy failures name proxy.log.
     try:
         match spec:
             case SandboxBuildSpecLinux():

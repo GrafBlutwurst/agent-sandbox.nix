@@ -1,39 +1,21 @@
 #!@bash@
-# The interpreter is pinned, not resolved from PATH. macOS ships bash 3.2,
-# which has no mapfile at all, so `/usr/bin/env bash` turns this into a
-# script that silently assembles an empty command line.
+# Pinned interpreter: macOS ships bash 3.2, which has no mapfile, so
+# `/usr/bin/env bash` would silently assemble an empty command line.
 # shellcheck shell=bash
 #
-# What $out/bin/<outName> actually is. Identical for every wrapper and both
-# platforms: the only build-time substitutions are four store paths and the
-# error prefix, and it holds no logic beyond resolving the declared environment
-# and assembling one command line.
-#
-# Everything it needs, it finds by fixed name in the session directory that
-# `prepare` prints. The one runtime branch is on an artifact's existence, not
-# on anything decided at build time.
-#
-# No `set -e`. The last command is the sandbox, and its exit status is the
-# status of this script; an errexit would turn a nonzero agent exit into an
-# abort before the trap could run.
+# No `set -e`: the last command is the sandbox, and its exit status is the
+# status of this script.
 set -uo pipefail
 
-# One `declare_env NAME '"<expression>"'` line per declared variable, generated
-# by Nix. The values are documented as runtime shell expressions, so they expand
-# here and never enter Python or touch disk.
-#
-# Resolved before `prepare` runs. An unresolvable value is a failed launch
-# either way, and failing now means there is no session directory to record and
-# no proxy to tear down.
 DECLARED_ENV=()
 UNRESOLVED=()
 
+# The declared env values are runtime shell expressions; they expand here and
+# never enter Python or touch disk. The expansion runs inside a command
+# substitution so that `set -u` on an unset variable kills only the subshell,
+# letting every failure be collected and reported against its env attribute.
 declare_env() {
   local name=$1 expression=$2 value
-  # The expansion runs inside a command substitution so that `set -u` on an
-  # unset variable kills only the subshell. Sourcing the assignment directly
-  # aborts the whole stub with bash's own message, which names the fragment's
-  # store path rather than the env attribute and stops at the first failure.
   if value=$(eval "printf '%s' $expression" 2>/dev/null); then
     DECLARED_ENV+=("$name=$value")
   else
@@ -52,34 +34,28 @@ if ((${#UNRESOLVED[@]})); then
       echo "  $entry"
     done
     echo
-    echo "Each value is a shell expression evaluated at launch, so anything it"
+    echo "Each value is a shell expression evaluated at launch; anything it"
     echo "references must be set in the shell you launch from."
   } >&2
   exit 1
 fi
 
-# Exported rather than set per command, so the entry point that runs inside
-# pasta's namespace inherits it too. `env -i` clears it before bubblewrap, so
-# the sandbox never sees it.
+# Exported so the entry point inside pasta's namespace inherits it too;
+# `env -i` clears it before bubblewrap.
 export PYTHONPATH=@launcher@
 
 if ! SESSION_DIR=$("@python@" -P -s -S -m launcher.prepare "@spec@"); then
   exit 1
 fi
 
-# The one thing the stub writes. Session directories outlive their run, so a
-# later launch prunes the oldest, and it has to be able to tell a finished
-# session from one still going: this shell does not exec, so it is the
-# sandbox's parent until the session ends and its pid answers that.
+# This shell does not exec, so it is the sandbox's parent until the session
+# ends; its pid is how a later launch's prune tells a finished session from a
+# running one.
 echo $$ >"$SESSION_DIR/stub.pid"
 
 # Armed only now: before this point there is no session to clean up, and
-# prepare tears down its own failures.
-#
-# $? is captured first because it is the sandbox's exit status, and every
-# command in the trap body overwrites it. Cleanup records it: this shell is the
-# only thing that sees it, since the process doing the recording is the one the
-# trap starts.
+# prepare tears down its own failures. $? is captured first because it is the
+# sandbox's exit status, and every command in the trap body overwrites it.
 trap 'STATUS=$?; "@python@" -P -s -S -m launcher.cleanup "$SESSION_DIR" "$STATUS"' EXIT
 
 mapfile -d '' ARGV_BEFORE_ENV < "$SESSION_DIR/argv-before-env"

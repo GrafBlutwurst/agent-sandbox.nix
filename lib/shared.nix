@@ -1,19 +1,10 @@
-# What both backends need. Two kinds of thing live here: the argument
-# validation and closure inputs that are the same on either platform, and the
-# machinery that turns a spec into $out/bin/<outName>. lib/linux.nix and
-# lib/darwin.nix hold only what actually differs between the two.
 { pkgs }:
 let
-  # Standard stderr message prefixes. Used by all wrapper-emitted warnings and
-  # errors so they are visually distinct from the sandboxed program's own
-  # output and greppable from interleaved logs.
   errorPrefix = "[ERROR][agent-sandbox.nix]";
   sandboxProxy = import ../proxy { pkgs = pkgs; };
-  # Wrapper that forces --norc --noprofile on every bash invocation.
-  # Newer claude-code versions spawn bash as a login/interactive shell,
-  # which causes it to source /etc/bashrc and /etc/profile. This wrapper
-  # intercepts any bash call (whether via SHELL, /bin/sh, or direct exec)
-  # and strips that behaviour regardless of how the caller invokes it.
+  # Forces --norc --noprofile however bash is reached (SHELL, /bin/sh,
+  # direct exec), so the sandboxed process cannot source /etc/bashrc or
+  # /etc/profile.
   bashWrapper =
     pkgs.runCommand "bash-norc"
       {
@@ -27,13 +18,8 @@ let
           --add-flags "--noprofile"
         ln -s bash $out/bin/sh
       '';
-  # Serializes allowedDomains to a JSON config file for the proxy.
-  # Accepts two formats:
-  #   List (backward compat): [ "github.com" "anthropic.com" ]
-  #     → every domain gets "*" (all methods allowed)
-  #   Attrset (per-domain method control):
-  #     { "*" = [ "GET" "HEAD" ]; "api.anthropic.com" = "*"; }
-  # Output JSON: { "domain": "*" | ["GET","HEAD"], ... }
+  # The proxy's JSON config: { "domain": "*" | ["GET","HEAD"], ... }. A
+  # plain list means every domain gets "*".
   mkAllowlistFile =
     allowedDomains:
     let
@@ -61,23 +47,17 @@ let
         invalidPorts = builtins.filter (port: !validPort port) allowedLocalPorts;
       in
       if invalidPorts != [ ] then
-        builtins.throw "${errorPrefix} allowedLocalPorts must only contain integers from 1 to 65535. Use null to allow all host-local TCP ports. Invalid port(s): ${builtins.toJSON invalidPorts}"
+        builtins.throw "${errorPrefix} allowedLocalPorts must only contain integers from 1 to 65535 (null allows all). Invalid: ${builtins.toJSON invalidPorts}"
       else
         pkgs.lib.unique allowedLocalPorts;
-  # allowUnixSockets gates AF_UNIX as one capability on both platforms, and
-  # allowNix cannot be granted without it: on Linux the nix daemon is reached
-  # over an AF_UNIX socket, and the seccomp filter that enforces the default
-  # denial works on the address family, so it cannot exempt a single path
-  # (classic BPF cannot dereference the sockaddr). The error is raised on
-  # macOS too, where the daemon socket is granted by path and the combination
-  # would technically work, because the two platforms must not accept
-  # different configurations.
+  # Raised on macOS too, where the combination would technically work, so
+  # the two platforms accept the same configurations.
   validateAllowUnixSockets =
     { allowNix, allowUnixSockets }:
     if !(builtins.isBool allowUnixSockets) then
       builtins.throw "${errorPrefix} allowUnixSockets must be a boolean"
     else if allowNix && !allowUnixSockets then
-      builtins.throw "${errorPrefix} allowNix = true requires allowUnixSockets = true: the nix daemon is reached over an AF_UNIX socket, and the sandbox denies AF_UNIX sockets by default. Setting allowUnixSockets = true also lets the agent create and connect to UNIX-domain sockets in directories it can write (the launch directory and rwDirs)."
+      builtins.throw "${errorPrefix} allowNix = true requires allowUnixSockets = true: the nix daemon is reached over an AF_UNIX socket, which the sandbox denies by default."
     else
       allowUnixSockets;
   assertNoLegacyArgs =
@@ -91,7 +71,7 @@ let
       legacyArgHints = {
         restrictNetwork =
           if restrictNetwork != null then
-            "- The 'restrictNetwork' argument is deprecated. Network access is now controlled by 'allowedDomains' alone:\n  - omit it for open internet\n  - set a list/attrset to filter\n  - set to [] to block all"
+            "- The 'restrictNetwork' argument is deprecated. Network access is controlled by 'allowedDomains': omit it for open internet, set a list/attrset to filter, or [] to block all."
           else
             null;
         extraEnv =
@@ -110,16 +90,13 @@ let
       throwMsgHints = builtins.concatStringsSep "\n" (
         builtins.attrValues (pkgs.lib.filterAttrs (_: v: v != null) legacyArgHints)
       );
-      throwMsg = "${errorPrefix} Deprecated arguments:\n\n${throwMsgHints}\n\nPlease update your configuration accordingly. See the migration guide: https://github.com/archie-judd/agent-sandbox.nix/blob/main/README.md#v0x-to-v1x-migration-guide";
+      throwMsg = "${errorPrefix} Deprecated arguments:\n\n${throwMsgHints}\n\nMigration guide: https://github.com/archie-judd/agent-sandbox.nix/blob/main/README.md#v0x-to-v1x-migration-guide";
     in
     if restrictNetwork != null || extraEnv != null || stateDirs != null || stateFiles != null then
       builtins.throw throwMsg
     else
       null;
 
-  # Runs inside the sandbox ahead of the agent binary: probes for a declared
-  # git identity and warns the user at launch if none is found, then exec's
-  # the real command. See lib/pre-entry-script.sh.
   preEntryScript = pkgs.writeShellScript "pre-entry-script" (builtins.readFile ./pre-entry-script.sh);
 
   # __pycache__ would otherwise change the store hash from one build to the
@@ -131,11 +108,6 @@ let
     cp -r ${launcherSource} $out/launcher
   '';
 
-  # cacert and bashWrapper are always included: cacert so SSL/TLS verification
-  # works, bashWrapper so the hardcoded SHELL and /bin/sh symlink targets are
-  # always reachable. bashWrapper forces --norc --noprofile on every bash
-  # invocation so the sandboxed process cannot source /etc/bashrc or
-  # /etc/profile.
   mkImplicitPackages =
     allowNix:
     [
@@ -144,17 +116,10 @@ let
     ]
     ++ (if allowNix then [ pkgs.nix ] else [ ]);
 
-  # One data line per declared variable, and no logic. The values are
-  # documented as runtime shell expressions, both the "$TOKEN" form and the
-  # sops "$(cat /run/secrets/...)" form, so they expand in the stub and never
-  # enter Python or touch disk.
-  #
-  # Each line calls declare_env rather than appending to an array directly, so
-  # that the expansion happens inside the stub where a failure can be caught and
-  # reported against the env attribute it came from. toJSON supplies the double
-  # quotes the value expands inside, so a value containing spaces is still one
-  # word; escapeShellArg then carries that whole fragment through as a literal
-  # argument, unexpanded until declare_env evals it.
+  # One declare_env line per declared variable. toJSON supplies the double
+  # quotes the value expands inside, so a value containing spaces stays one
+  # word; escapeShellArg carries the fragment through unexpanded until
+  # declare_env evals it.
   mkEnvFragment =
     { outName, env }:
     pkgs.writeText "${outName}-env" (
@@ -177,10 +142,8 @@ let
       errorPrefix = errorPrefix;
     };
 
-  # The wrapper itself. The seqs are what make the validation an eval-time
-  # error: nothing else forces them, so without them a deprecated argument, an
-  # out-of-range port or an allowNix/allowUnixSockets conflict would only be
-  # discovered when the agent is launched.
+  # The seqs force the validations at eval time; nothing else does, so
+  # without them the errors would only surface when the agent is launched.
   mkWrapper =
     {
       outName,

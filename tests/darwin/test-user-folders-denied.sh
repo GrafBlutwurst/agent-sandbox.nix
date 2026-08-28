@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Test: /private/var/folders (per-user temp/cache tree) is not reachable
-# from inside the sandbox. Regression for SANDBOX-FINDINGS.md §1 — that
-# subtree holds 0400/0600 host-user secrets (age keys, PATs, etc.) and
-# the sandbox runs as the host UID, so it must not be in the allow set.
+# from inside the sandbox. It holds 0400/0600 host-user secrets and the
+# sandbox runs as the host UID.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

@@ -6,18 +6,11 @@ TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PASS=0
 FAIL=0
 
-# Keep session directories out of the developer's real sessions root. Without
-# this every launch in the suite lands in $XDG_STATE_HOME/agent-sandbox, and
-# each one runs the prune, so a suite run does not merely litter: it evicts real
-# sessions beyond the retention limit.
-#
-# Set here rather than in run-all.sh because a test file run on its own has to
-# be scoped too, and skipped when the caller has already chosen a root, which is
-# how the files that assert against retention control their own.
-#
-# Under .tmp-test, which is gitignored, rather than mktemp -d: a failed test's
-# session directory is then still there to read afterwards. Cleared per file, so
-# what is left is the last run's.
+# Keep session directories out of the developer's real sessions root, whose
+# prune would otherwise evict real sessions. Set here rather than in
+# run-all.sh so a test file run on its own is scoped too; skipped when the
+# caller has already chosen a root. Under gitignored .tmp-test rather than
+# mktemp -d, so a failed test's session directory is still there to read.
 if [ -z "${AGENT_SANDBOX_SESSIONS_ROOT:-}" ]; then
 	AGENT_SANDBOX_SESSIONS_ROOT="$TESTS_DIR/../.tmp-test/sessions/$(basename "$0")"
 	export AGENT_SANDBOX_SESSIONS_ROOT
@@ -31,10 +24,7 @@ _usage_error() {
 }
 
 # Build a derivation and print its store path, memoised into TEST_BUILD_CACHE
-# when the harness provides one. run-all.sh exports a cache so one evaluation
-# is shared by every test file in a suite run; a test file run on its own has
-# no cache and simply builds. The cache is per-run rather than persistent, so
-# an edit under lib/ is always picked up.
+# when run-all.sh provides one; a test file run on its own simply builds.
 _build_memoised() {
 	local key="$1"
 	shift
@@ -63,15 +53,9 @@ build_host_pkg() {
 }
 
 # expect_ok <runner> <desc> <command>
-#
-# <runner> is a function or command taking the command as its single argument.
-# Each test file declares its own and names it at every call site, so a file
-# that asserts against more than one sandbox says which one it means at the
-# point it means it.
-#
 # <command> is one shell script string, not an argv: call sites rely on &&,
-# redirections, and $HOME expanded inside the sandbox rather than out here.
-# Passing more than one is a mistake, so it is refused rather than joined.
+# redirections, and $HOME expanded inside the sandbox. Passing more than one
+# is refused rather than joined.
 expect_ok() {
 	[ "$#" -eq 3 ] || _usage_error "expect_ok takes <runner> <desc> <command>, got $# arguments"
 	local runner="$1" desc="$2" command="$3"
@@ -113,10 +97,8 @@ expect_status() {
 	fi
 }
 
-# Run a command, capturing its stdout, stderr, and exit status separately into
-# CAP_OUT / CAP_ERR / CAP_STATUS for the assert_* helpers below. Capture once,
-# then assert many — so a side-effecting command (e.g. `git commit`) runs only
-# once even when several properties are checked.
+# Capture stdout, stderr and exit status into CAP_OUT / CAP_ERR / CAP_STATUS
+# for the assert_* helpers: capture once, assert many.
 capture() {
 	local _out _err
 	_out=$(mktemp)

@@ -1,9 +1,5 @@
 # Example: a dev shell with a sandboxed Claude Code binary and uv for Python.
-# Handles NixOS dynamic linking so that uv-managed packages (e.g. matplotlib)
-# work correctly without uv trying to manage its own Python installation.
-#
-# NixOS users: make sure nix-ld is enabled in your configuration.nix:
-#   programs.nix-ld.enable = true;
+# NixOS users need nix-ld enabled (programs.nix-ld.enable = true).
 #
 # Usage:
 #   export CLAUDE_CODE_OAUTH_TOKEN="your_token_here"
@@ -20,17 +16,16 @@ let
 
   isLinux = pkgs.stdenv.isLinux;
 
-  # On NixOS, these libraries are threaded into LD_LIBRARY_PATH so that
-  # nix-ld can satisfy dynamic link dependencies (libstdc++, zlib, libX11)
-  # for any compiled wheels uv installs at runtime.
+  # Threaded into LD_LIBRARY_PATH so nix-ld can satisfy dynamic linking for
+  # compiled wheels uv installs at runtime.
   dynamicLibraries = [
     pkgs.stdenv.cc.cc
     pkgs.zlib
     pkgs.xorg.libX11
   ];
 
-  # Preserve the host LD_LIBRARY_PATH (set by nix-ld) and prepend our libs.
-  # Dropping the host value would break glibc resolution for nix-ld itself.
+  # The host LD_LIBRARY_PATH (set by nix-ld) is preserved: dropping it would
+  # break glibc resolution for nix-ld itself.
   ldLibraryPath = "${builtins.getEnv "LD_LIBRARY_PATH"}:${pkgs.lib.makeLibraryPath dynamicLibraries}";
 
   commonPackages = agent-sandbox.commonTools ++ [
@@ -45,7 +40,6 @@ let
   };
 
   # On NixOS, use a nix-managed Python and tell uv not to install its own.
-  # On macOS, uv can manage Python itself without linker workarounds.
   linuxEnv = {
     UV_NO_MANAGED_PYTHON = "1";
     LD_LIBRARY_PATH = ldLibraryPath;
@@ -61,14 +55,10 @@ let
       "$HOME/.local/share/uv"
     ];
     rwFiles = [ ];
-    # Bind your host gitconfig read-only for git identity (recommended).
-    # Set user.name / user.email on the host first, then uncomment:
+    # For git identity, uncomment to bind your host gitconfig (see README):
     # roFiles = [ "$HOME/.config/git/config" ];
-    # (Alternative: set GIT_AUTHOR_* / GIT_COMMITTER_* in env. See README.)
     allowedPackages = commonPackages;
     env = commonEnv // pkgs.lib.optionalAttrs isLinux linuxEnv;
-    # Broader domain scoping than claude.shell.nix: uv needs access to all
-    # github.com / githubusercontent.com subdomains, plus PyPI for packages.
     allowedDomains = {
       "anthropic.com" = "*";
       "claude.com" = "*";
@@ -92,11 +82,8 @@ let
 
   };
 
-  # uv and python3 are repeated here (also in allowedPackages above) so they are
-  # available both inside the sandbox and in the outer nix-shell for ad-hoc use.
-  # LD_LIBRARY_PATH / UV_NO_MANAGED_PYTHON are similarly duplicated: env
-  # injects them inside the sandbox, while the attrs below set them in the
-  # outer nix-shell where uv may also be invoked directly.
+  # uv, python3 and the linuxEnv attrs are repeated below so they also apply
+  # in the outer nix-shell, where uv may be invoked directly.
 in
 pkgs.mkShell {
   packages = [

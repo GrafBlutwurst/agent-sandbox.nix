@@ -1,20 +1,10 @@
 #!/usr/bin/env bash
-# Test: launching the agent from $HOME itself.
-#
-# The launch directory is always bound read-write, so launching from $HOME
-# exposes the whole home directory — the one case where the usual masking does
-# not apply. That is allowed, but only after an explicit confirmation read from
-# /dev/tty, and it is refused outright when there is no terminal to ask on.
-# A launch directory *above* $HOME is refused either way.
-#
-# Also covers the regression that motivated all this: with the real home bound
-# over the ephemeral one, a declared roFile that is a nix store symlink (as
-# home-manager writes ~/.config/git/config) is visible at its declared path,
-# and bwrap cannot create a mountpoint on top of an absolute symlink. The
-# wrapper used to die at startup with "Can't create file at ...".
-#
-# We drive this by pointing HOME at a throwaway directory and launching from
-# it, so nothing touches the real home.
+# Test: launching from $HOME exposes the whole home read-write, so it is
+# allowed only after confirmation on /dev/tty, and refused outright with no
+# terminal to ask on. A launch directory above $HOME is refused either way.
+# Also covers a declared roFile that is a nix store symlink under a home CWD,
+# which bwrap cannot mount over. HOME is pointed at a throwaway directory, so
+# nothing touches the real home.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

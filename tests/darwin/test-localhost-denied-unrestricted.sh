@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
-# Test: with allowedDomains omitted (open network mode), the sandbox can still
-# reach the public internet but cannot reach host loopback (TCP IPv4 + IPv6)
-# or host UNIX sockets. Regression for docs/v1-plan.md PR C — Darwin
-# localhost/UNIX-socket deny by default.
-#
-# The same protection already holds in filtered mode (allowedDomains set);
-# this test exercises the open mode where, prior to PR C, (allow network*)
-# and (allow system-socket) let the sandbox connect() to either.
+# Test: with allowedDomains omitted (open network mode), the sandbox can
+# reach the public internet but not host loopback (TCP IPv4 + IPv6) or host
+# UNIX sockets. Filtered mode holds the same protection via deny-default;
+# this exercises the open-mode denies.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TEST_CWD="$(cd "$SCRIPT_DIR/../.." && pwd)"

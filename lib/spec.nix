@@ -1,10 +1,5 @@
-# Emits the JSON the launcher reads at startup. The spec is data, not code: it
-# carries store paths as values, so nothing here interpolates a path into a
-# string that a shell later re-splits.
-#
-# Keys are snake_case rather than the camelCase used elsewhere in the Nix,
-# because this is a wire format read by Python and a per-field name mapping on
-# the other side is one more thing that can drift.
+# Emits the JSON the launcher reads at startup. Keys are snake_case so the
+# Python side needs no per-field name mapping.
 { pkgs, shared }:
 {
   platform,
@@ -29,9 +24,6 @@
   emptyFile ? null,
 }:
 let
-  # Host binaries the launcher executes, as opposed to store paths bound into
-  # or referenced from inside the sandbox. Small because the port replaces
-  # dirname, readlink, realpath and find with in-process calls.
   dependencies =
     if platform == "linux" then
       {
@@ -45,13 +37,11 @@ let
       }
     else
       {
-        # sandbox-exec and env live in /usr/bin, so they are constants in the
-        # launcher rather than store paths here.
         git = "${pkgs.git}/bin/git";
       };
 
-  # Omitted entirely when allowedDomains is unset, so an unrestricted wrapper's
-  # spec names the Go proxy nowhere and does not carry it in its closure.
+  # Omitted when allowedDomains is unset, so an unrestricted wrapper does
+  # not carry the Go proxy in its closure.
   proxy =
     if allowedDomains == null then
       null
@@ -83,16 +73,13 @@ let
     sandbox_path = sandboxPath;
     allow_nix = allowNix;
     allow_unix_sockets = allowUnixSockets;
-    # Unexpanded, exactly as written in the caller's Nix. They carry $VAR and ~
-    # and the launcher expands them, so they are not paths yet.
     rw_dirs = rwDirs;
     rw_files = rwFiles;
     ro_dirs = roDirs;
     ro_files = roFiles;
-    # Keys only. The values are documented as runtime shell expressions, so Nix
-    # emits them as a fragment the stub sources and they never reach Python.
+    # Keys only. The values are runtime shell expressions, emitted as a
+    # fragment the stub sources; they never reach Python.
     env_keys = builtins.attrNames env;
-    # null means every host-local TCP port; [] means none.
     allowed_local_ports = allowedLocalPorts;
     closure_paths_file = "${closurePathsFile}";
     cacert_dir = "${pkgs.cacert}/etc/ssl/certs";

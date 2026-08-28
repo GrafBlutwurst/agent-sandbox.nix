@@ -1,17 +1,9 @@
 #!/usr/bin/env bash
-# Test: when the git root resolves to $HOME (or an ancestor), the sandbox
-# refuses to expose it and disables git for the session, instead of binding
-# the whole home directory. Regression for SANDBOX-FINDINGS.md F2.
-#
-# The threat: a user who has `git init`'d their home directory launches the
-# agent from a subdir of home. `git rev-parse --git-common-dir` then resolves
-# to ~/.git, so REPO_ROOT=$HOME would be exposed (read-only via REPO_ROOT,
-# read-write via GIT_DIR) — leaking SSH keys, other projects, and the dotfiles
-# repo's tracked-file history. The fix detects REPO_ROOT ⊇ $HOME and disables
-# git, leaving CWD (the project subdir) fully usable.
-#
-# We drive this by pointing HOME at a throwaway git repo and launching from a
-# subdir of it, so the guard fires without touching the real home directory.
+# Test: when the git root resolves to $HOME or an ancestor (a git init'd
+# home directory), the sandbox disables git for the session instead of
+# binding the whole home, which would leak SSH keys, other projects and the
+# dotfiles repo's history. CWD stays fully usable. HOME is pointed at a
+# throwaway git repo, so the guard fires without touching the real home.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

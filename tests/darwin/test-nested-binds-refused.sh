@@ -1,16 +1,8 @@
 #!/usr/bin/env bash
-# Test: a bind declared underneath another declared bind is refused at launch,
-# and the real host file it names is left untouched.
-#
-# On macOS each declared path is planted into the ephemeral sandbox HOME as a
-# symlink, in declaration order. Planting one that sits under an already
-# planted bind used to walk through that bind's symlink and back out into the
-# real home: `mkdir -p` created directories there, and `ln -sfn` unlinked the
-# destination it resolved to. Where the declared file was itself a host symlink
-# (a dotfiles setup) that destroyed it, leaving a link pointing at itself.
-#
-# The wrapper now walks the destination from the sandbox HOME down and refuses
-# to launch if any component is already planted or already occupied.
+# Test: a bind declared underneath another declared bind is refused at
+# launch, and the real host file it names is left untouched. Planting the
+# nested one into the sandbox HOME would resolve through the earlier symlink
+# back into the real home, where ln -sfn destroys the user's real file.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

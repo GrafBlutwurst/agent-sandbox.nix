@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
-# Test: the narrowed sysctl-read profile blocks per-process snooping.
-# Regression for the pentest finding that the previous blanket
-# (allow sysctl-read) exposed:
-#   - kern.proc.all (enumerate every host-UID process)
-#   - kern.procargs / kern.procargs2 via sysctl({1,49,pid}) — the
-#     argv+envp of every host-UID process, including any secrets in
-#     env vars (CLAUDE_CODE_OAUTH_TOKEN, GITHUB_TOKEN, AWS_*, ...).
+# Test: the narrowed sysctl-read profile blocks per-process snooping:
+# kern.proc.* enumeration and kern.procargs/procargs2, which return the
+# argv+envp (and so any env-var secrets) of every host-UID process.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

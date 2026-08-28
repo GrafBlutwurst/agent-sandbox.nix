@@ -1,13 +1,5 @@
-"""Second entry point, called from the stub's EXIT trap.
-
-Runs in a different process from the one that built the session, so everything
-it needs comes off disk. Best effort throughout: the sandbox has already exited
-by the time this runs, and failing here would turn a successful run into a
-failed one for no gain.
-
-The session directory itself survives. It holds the computed configuration and
-both logs, which is the point of having it.
-"""
+"""Second entry point, called from the stub's EXIT trap. Best effort
+throughout: failing here would turn a successful run into a failed one."""
 
 import os
 import shutil
@@ -36,19 +28,10 @@ def _kill_proxy(session_dir: Path) -> None:
     try:
         os.kill(pid, signal.SIGKILL)
     except OSError:
-        # Already gone, most often because Ctrl-C reached the whole process
-        # group, which includes the proxy.
         pass
 
 
 def cleanup_launch(session_dir: Path, exit_status: int | None, now: datetime) -> None:
-    """Tear the session down, and record what the sandbox exited with.
-
-    The status comes from the stub's EXIT trap, which is the only thing that
-    sees it: this process is started by the trap, so it cannot observe the
-    sandbox itself. None means nobody passed one, which is a cleanup run by
-    hand rather than by the trap.
-    """
     if exit_status is not None:
         write_sandbox_exit(session_dir / LAUNCH_LOG, exit_status, now)
 
@@ -61,9 +44,8 @@ def cleanup_launch(session_dir: Path, exit_status: int | None, now: datetime) ->
         except OSError:
             pass
 
-    # Bubblewrap materialises a mount destination on the host, so a path bound
-    # over to make it read-only has to go. If something wrote real content there
-    # in the meantime, it is not ours to delete.
+    # Mount points bubblewrap materialised on the host. If something wrote
+    # real content there in the meantime, it is not ours to delete.
     for path in _read_nul(session_dir / CLEANUP_IF_EMPTY):
         try:
             if path.stat().st_size == 0:
@@ -73,9 +55,8 @@ def cleanup_launch(session_dir: Path, exit_status: int | None, now: datetime) ->
 
 
 def main() -> None:
-    # A status that is not a number is treated as absent rather than fatal:
-    # this runs from an EXIT trap, where raising would replace the sandbox's
-    # own exit status with a traceback.
+    # Raising from an EXIT trap would replace the sandbox's own exit status
+    # with a traceback, so a malformed status is treated as absent.
     exit_status = None
     if len(sys.argv) > 2:
         try:

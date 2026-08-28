@@ -1,17 +1,8 @@
 #!/usr/bin/env bash
-# allowUnixSockets validation (shared across platforms).
-#
-# Two rules, both enforced at *eval* time by shared.validateAllowUnixSockets:
-#   1. allowUnixSockets must be a boolean.
-#   2. allowNix = true requires allowUnixSockets = true. On Linux the nix
-#      daemon is reached over an AF_UNIX socket and the seccomp filter that
-#      enforces the default denial works on the address family, so it cannot
-#      exempt a single path. The error is raised on macOS too, so the two
-#      platforms never accept different configurations.
-#
-# Same mechanism as test-legacy-args-error.sh: `builtins.seq wrapper "ok"`
-# forces the wrapper to WHNF, which fires the validation seqs in mkWrapper
-# without realising the derivation.
+# allowUnixSockets validation, enforced at eval time: it must be a boolean,
+# and allowNix = true requires it. Same mechanism as
+# test-legacy-args-error.sh: `builtins.seq wrapper "ok"` fires the
+# validation seqs without realising the derivation.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

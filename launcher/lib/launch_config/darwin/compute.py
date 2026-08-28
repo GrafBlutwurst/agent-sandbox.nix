@@ -1,9 +1,6 @@
-"""What to launch on macOS, and the seatbelt profile that constrains it.
-
-Pure. Reads no files, runs no subprocesses, prints nothing. Ordering decisions
-live here: seatbelt is last-match-wins, so the order these sections are
-assembled in is what is enforced, not merely how it reads.
-"""
+"""Computes the macOS launch: the argv and the seatbelt profile. Seatbelt is
+last-match-wins, so the order the sections are assembled in is what is
+enforced."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,25 +18,19 @@ from launcher.lib.session_state import SessionStateDarwin
 
 SANDBOX_EXEC = Path("/usr/bin/sandbox-exec")
 SYSTEM_ENV = Path("/usr/bin/env")
-# TMPDIR inside the sandbox. See the /tmp note in seatbelt.temp_dirs.
 SANDBOX_TMPDIR = Path("/tmp")
 
 
 @dataclass(frozen=True, kw_only=True)
 class SandboxLaunchConfigDarwin(SandboxLaunchConfig):
     seatbelt_profile_lines: tuple[str, ...]
-    # Link path inside the sandbox home, and the real path it points at. Planted
-    # so that $HOME-relative lookups inside the sandbox reach the real paths
-    # through the seatbelt-allowed targets.
+    # (link inside the sandbox home, real path it points at)
     home_symlinks: tuple[tuple[Path, Path], ...]
 
 
 def _get_ancestors(start: Path, stop: Path) -> list[Path]:
-    """Directories between start and stop, exclusive of both.
-
-    Seatbelt needs file-read-metadata on each, or reaching an allowed subpath
-    fails with EPERM partway through path resolution.
-    """
+    # Seatbelt needs file-read-metadata on every intermediate directory, or
+    # reaching an allowed subpath fails with EPERM during path resolution.
     ancestors: list[Path] = []
     current = start.parent
     while current != stop and current != Path("/"):
@@ -49,15 +40,6 @@ def _get_ancestors(start: Path, stop: Path) -> list[Path]:
 
 
 def _get_traversal_ancestors(host: HostStateDarwin, git: GitState | None) -> list[Path]:
-    """Every directory needing traversal metadata, in order, without repeats.
-
-    From the repository root, or the launch directory when there is no usable
-    repository, up to the real home; then from each declared path up to the real
-    home, so symlink targets planted in the sandbox home are reachable.
-
-    The bash emitted one rule per visit and so repeated itself; the rule set is
-    the same either way.
-    """
     walk_from = git.repo_root if git is not None else host.cwd
     ancestors = _get_ancestors(walk_from, host.real_home)
     for declared in host.declared:
@@ -75,13 +57,9 @@ def _get_traversal_ancestors(host: HostStateDarwin, git: GitState | None) -> lis
 def _get_home_symlinks(
     host: HostStateDarwin, sandbox_home: Path
 ) -> list[tuple[Path, Path]]:
-    """Where each declared path under the real home appears in the sandbox home.
-
-    Only paths under the real home get one: anything else is reachable at its
-    own absolute path already. Overlapping declarations are refused before this
-    runs, by get_launch_refusals, so nothing here can plant through an earlier
-    link and out into the real home.
-    """
+    # Only paths under the real home need a link; anything else is reachable
+    # at its own absolute path. Overlapping declarations are refused before
+    # this runs.
     planted: list[tuple[Path, Path]] = []
     for declared in host.declared:
         path = declared.expanded_path
@@ -93,16 +71,10 @@ def _get_home_symlinks(
 
 @dataclass(frozen=True, kw_only=True)
 class _UnixSocketScope:
-    # bind + connect: the launch directory plus every declared rw directory.
-    # rw files are excluded because a socket cannot be declared ahead of
-    # time — bind() refuses an existing path.
+    # rw files are excluded from writable: bind() refuses an existing path.
     writable: tuple[Path, ...]
-    # connect only: every declared ro directory and file, per the rule that
-    # read access to a path means connect access to the sockets in it.
     connect_dirs: tuple[Path, ...]
     connect_files: tuple[Path, ...]
-    # The subset of the ro declarations sitting inside a writable dir, which
-    # need explicit bind denies or the enclosing subpath allow wins.
     nested_ro_dirs: tuple[Path, ...]
     nested_ro_files: tuple[Path, ...]
 
@@ -110,21 +82,9 @@ class _UnixSocketScope:
 def _get_unix_socket_scope(
     host: HostStateDarwin, repo_root: Path | None
 ) -> _UnixSocketScope:
-    """The socket scope. Semantics and rationale live on seatbelt.unix_sockets.
-
-    The repository root joins the connect set: it is read-only visible on
-    both platforms when launching from a subdirectory, and on Linux that
-    visibility already means connect — build servers keep their rendezvous
-    sockets at the build root (.bsp, .bloop, nailgun), which is the repo
-    root, not the module directory the agent was launched in. bind there
-    stays denied on both platforms, so the ro rule holds for it too.
-
-    The nesting filter is one-directional on purpose: an ro declaration
-    inside a writable dir gets a bind deny, but an ro directory enclosing a
-    writable one (launching from a subdirectory of an roDir) gets none, so
-    the writable grant keeps winning there. See seatbelt.unix_sockets for
-    why /tmp stays out of the writable set.
-    """
+    # The repository root joins the connect set: build servers keep their
+    # rendezvous sockets at the build root (.bsp, .bloop, nailgun), not the
+    # module directory the agent was launched in.
     writable = [host.cwd]
     for declared in host.declared:
         if isinstance(declared, DeclaredDir) and declared.mode == "rw":
@@ -154,25 +114,14 @@ def _get_unix_socket_scope(
 
 
 def _get_passwd(host: HostStateDarwin) -> str:
-    """A single fabricated user.
-
-    Binding the host's real /etc/passwd would hand over every account name and
-    home path on the machine. The x means the hash lives in the shadow file, so
-    no credential is here. The uid and gid are real because the process really
-    does run as them.
-    """
+    # A single fabricated user: the host's real /etc/passwd would hand over
+    # every account name and home path on the machine.
     return f"user:x:{host.uid}:{host.gid}:sandbox user:{host.real_home}:/bin/sh\n"
 
 
 def _get_computed_env(
     spec: SandboxBuildSpecDarwin, host: HostStateDarwin, session: SessionStateDarwin
 ) -> list[str]:
-    """The environment the launcher decides, as K=V arguments to env -i.
-
-    The declared environment follows these, inserted by the stub, so a declared
-    HOME or PATH still overrides the computed one. That is what both backends do
-    today, and reversing it would be a behaviour change this port does not make.
-    """
     pairs = [
         f"HOME={session.sandbox_home}",
         f"SHELL={spec.shell}",
@@ -214,7 +163,6 @@ def _get_profile_lines(
     session: SessionStateDarwin,
     git: GitState | None,
 ) -> list[str]:
-    """Assemble the profile. The order is the enforcement."""
     repo_root_parent = git.repo_root.parent if git is not None else None
     git_dir = git.common_dir if git is not None else None
     repo_root = git.repo_root if git is not None else None
@@ -235,8 +183,7 @@ def _get_profile_lines(
 
     # After the network rules, so the allows outrank open mode's blanket
     # unix-socket deny by last-match. Before nix_support, so the nested-ro
-    # denies inside this section can never shadow the daemon socket allow,
-    # should an roDir enclosing the daemon socket ever be declared.
+    # denies can never shadow the daemon socket allow.
     if spec.allow_unix_sockets:
         scope = _get_unix_socket_scope(host, repo_root)
         lines += seatbelt.unix_sockets(
@@ -247,8 +194,6 @@ def _get_profile_lines(
             scope.nested_ro_files,
         )
 
-    # After the network rules, so the socket allow outranks the blanket
-    # unix-socket deny in open mode.
     if host.nix_daemon_socket is not None:
         lines += seatbelt.nix_support(host.nix_daemon_socket)
 
@@ -271,11 +216,9 @@ def _get_profile_lines(
     lines += seatbelt.closure(host.closure_paths)
     lines += seatbelt.ancestor_metadata(_get_traversal_ancestors(host, git))
 
-    # Last, so they outrank every allow above, including a declared rwDir that
-    # happens to contain the gitdir.
+    # Last, so they outrank every allow above, including a declared rwDir
+    # that happens to contain the gitdir.
     if git is not None:
-        # Existence is irrelevant here: a deny on a path that does not exist
-        # yet is harmless, and becomes effective the moment it appears.
         lines += seatbelt.git_protection(
             git.protected_dirs, tuple(git.protected_files.keys())
         )
@@ -310,10 +253,7 @@ def compute_launch_config(
         argv_after_env=tuple(argv_after_env),
         passwd=_get_passwd(host),
         ca_bundle=ca_bundle,
-        # The session directory survives for debugging, and everything at a
-        # fixed name inside it survives with it. Only the sandbox home goes.
         cleanup=(session.sandbox_home,),
-        # macOS binds nothing, so nothing is materialised to clean up.
         cleanup_if_empty=(),
         warnings=tuple(warnings),
         seatbelt_profile_lines=tuple(_get_profile_lines(spec, host, session, git)),

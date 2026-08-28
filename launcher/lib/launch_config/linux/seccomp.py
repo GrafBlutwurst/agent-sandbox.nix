@@ -1,31 +1,13 @@
-"""The seccomp filter that makes AF_UNIX denial real on Linux.
-
-Without it the platform has no gate at all: a pathname socket is reachable
-exactly when its path is visible in the mount namespace, so every sandbox
-could reach every host socket its binds exposed. macOS scopes socket access
-by path in the seatbelt profile; classic BPF cannot dereference the
-sockaddr_un to do the same, so the only positions Linux can hold are "no
-AF_UNIX" and "whatever the mounts expose". allowUnixSockets picks between
-them, and this module is the "no" position: a classic-BPF program that makes
-socket(AF_UNIX, ...) fail with EPERM.
+"""A classic-BPF program that makes socket(AF_UNIX, ...) fail with EPERM.
+Classic BPF cannot dereference the sockaddr_un, so unlike seatbelt this
+cannot scope by path: the only positions Linux can hold are "no AF_UNIX" and
+"whatever the mounts expose".
 
 EPERM rather than SECCOMP_RET_KILL, because callers probe for AF_UNIX
-services and fall back: glibc treats an unreachable nscd socket as nscd
-absent, syslog(3) gives up quietly. Killing the process would turn each of
-those probes into a crash.
-
-socketpair(2) is a different syscall, so anonymous AF_UNIX pairs — which
-reach nothing on the host and which runtimes use for internal IPC — pass the
-filter untouched.
-
-The program is bytes with no runtime dependency, computed here rather than
-compiled at build time so it lands in the session directory with the other
-launch artifacts, where a denied bind() can be debugged by reading what was
-actually loaded. bubblewrap applies it to the sandboxed process via
---seccomp; the descriptor plumbing is apply_network_rules' job, because
-pasta does not pass inherited descriptors to its child, so the in-namespace
-entry point is the only process left that can open one for bubblewrap to
-inherit.
+services and fall back (glibc treats an unreachable nscd socket as nscd
+absent); killing would turn each probe into a crash. socketpair(2) is a
+different syscall, so anonymous pairs, which reach nothing on the host, pass
+untouched.
 """
 
 import struct
@@ -67,10 +49,8 @@ _X32_SYSCALL_BIT = 0x40000000
 
 
 def get_unix_deny_filter(machine: str) -> bytes:
-    """The compiled program for `machine`, which must be in SUPPORTED_MACHINES.
-
-    launch_checks refuses the launch on any other machine before this runs;
-    an unchecked caller gets a KeyError, which is the bug it would be.
+    """The compiled program for `machine`, which must be in SUPPORTED_MACHINES
+    (an unchecked caller gets a KeyError, which is the bug it would be).
 
     The shape, with jumps resolved against the two returns at the end:
 

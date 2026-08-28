@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
 # Test: UNIX-socket egress is denied from inside the sandbox in filtered
-# mode (allowedDomains set). Regression guard for SANDBOX-FINDINGS.md §2.
-#
-# Both modes now deny AF_UNIX outbound, but via different mechanisms —
-# see tests/fixtures/unix-socket-client-sandbox.nix for the split. This
-# test exercises the filtered-mode mechanism; the open-mode mechanism is
-# covered by tests/darwin/test-localhost-denied-unrestricted.sh.
+# mode (allowedDomains set). The open-mode mechanism is covered by
+# test-localhost-denied-unrestricted.sh.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

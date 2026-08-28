@@ -22,29 +22,19 @@ import (
 	"time"
 )
 
-// DomainPolicy describes which HTTP methods are allowed for a domain.
 type DomainPolicy struct {
 	AllowAll bool
 	Methods  map[string]bool
 }
 
-// Config maps domain names to their policies. The "*" key is the default policy.
+// The "*" key is the default policy.
 type Config map[string]DomainPolicy
 
-// Redirects maps a lowercase hostname to a local "host:port" address.
-// When a request arrives for one of these hosts, the proxy dials the local
-// address with plain TCP instead of resolving and dialing the original host.
-//
-// This is an internal escape hatch used by the test harness to point fake
-// domains at a local httpbin instance, so tests don't depend on public
-// services. Set via the SANDBOX_PROXY_REDIRECT env var. Not part of the
-// public API and not documented for end users.
+// Redirects maps a lowercase hostname to a local "host:port" address the
+// proxy dials instead of resolving the original host. A test-harness escape
+// hatch, set via SANDBOX_PROXY_REDIRECT as "host=addr:port[,...]".
 type Redirects map[string]string
 
-// parseRedirectEnv parses SANDBOX_PROXY_REDIRECT.
-// Format: "host=addr:port[,host=addr:port]..."
-// All upstream dials are plain TCP; the proxy still MITMs client HTTPS
-// with its own CA, so HTTPS requests still exercise the MITM path.
 func parseRedirectEnv(s string) (Redirects, error) {
 	out := make(Redirects)
 	if s == "" {
@@ -71,13 +61,12 @@ func parseRedirectEnv(s string) (Redirects, error) {
 
 const maxURLBytes = 8192
 
-// directTransport bypasses ProxyFromEnvironment so the proxy itself
-// doesn't try to route through another proxy on the host.
+// Proxy nil rather than ProxyFromEnvironment, so the proxy itself does not
+// route through another proxy on the host.
 var directTransport = &http.Transport{
 	Proxy: nil,
 }
 
-// knownHTTPMethods is the set of standard HTTP methods (RFC 9110).
 var knownHTTPMethods = map[string]bool{
 	"GET": true, "HEAD": true, "POST": true, "PUT": true,
 	"DELETE": true, "CONNECT": true, "OPTIONS": true, "TRACE": true,
@@ -100,7 +89,6 @@ func loadConfig(path string) (Config, error) {
 	cfg := make(Config)
 	for domain, val := range raw {
 		domain = strings.ToLower(domain)
-		// Try string first ("*"), then array of methods
 		var star string
 		if err := json.Unmarshal(val, &star); err == nil {
 			if star == "*" {
@@ -127,14 +115,12 @@ func loadConfig(path string) (Config, error) {
 	return cfg, nil
 }
 
-// lookupPolicy finds the policy for a host, falling back to the "*" default.
 // When multiple suffix entries match, the longest (most specific) wins.
 func lookupPolicy(host string, cfg Config) (DomainPolicy, bool) {
 	host = strings.ToLower(host)
 	if p, ok := cfg[host]; ok {
 		return p, true
 	}
-	// Collect all suffix matches and pick the longest (most specific).
 	var bestDomain string
 	var bestPolicy DomainPolicy
 	for d, p := range cfg {
@@ -170,8 +156,7 @@ func isMethodAllowed(host, method string, cfg Config) bool {
 	return policy.Methods[strings.ToUpper(method)]
 }
 
-// lookupRedirect finds the redirect address for a host. Matches exact first,
-// then longest suffix — mirrors lookupPolicy so a subdomain that passes the
+// lookupRedirect matches like lookupPolicy, so a subdomain that passes the
 // allowlist by suffix match also gets redirected.
 func lookupRedirect(host string, redirects Redirects) (string, bool) {
 	host = strings.ToLower(host)
@@ -203,11 +188,9 @@ func portOf(addr string) string {
 	return p
 }
 
-// --- CA and certificate minting ---
-
 const maxCachedCerts = 1024
 
-// certAuthority holds the ephemeral CA used to mint per-host leaf certificates.
+// The ephemeral CA that mints per-host leaf certificates.
 type certAuthority struct {
 	cert      *x509.Certificate
 	key       *ecdsa.PrivateKey
@@ -278,7 +261,6 @@ func (ca *certAuthority) mintCert(hostname string) (*tls.Certificate, error) {
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		DNSNames:     []string{hostname},
 	}
-	// If hostname looks like an IP, add it as an IP SAN
 	if ip := net.ParseIP(hostname); ip != nil {
 		tmpl.IPAddresses = []net.IP{ip}
 	}
@@ -290,7 +272,6 @@ func (ca *certAuthority) mintCert(hostname string) (*tls.Certificate, error) {
 		Certificate: [][]byte{certDER},
 		PrivateKey:  key,
 	}
-	// Avoid unbounded cache growth: stop caching after maxCachedCerts entries.
 	if ca.cacheSize.Load() < maxCachedCerts {
 		if _, loaded := ca.cache.LoadOrStore(hostname, tlsCert); !loaded {
 			ca.cacheSize.Add(1)
@@ -298,8 +279,6 @@ func (ca *certAuthority) mintCert(hostname string) (*tls.Certificate, error) {
 	}
 	return tlsCert, nil
 }
-
-// --- Filtering helpers ---
 
 func isWebSocketUpgrade(req *http.Request) bool {
 	for _, v := range req.Header["Upgrade"] {
@@ -316,8 +295,6 @@ func requestURLLength(req *http.Request) int {
 	return len(req.URL.String())
 }
 
-// hasRequestBody reports whether req carries a body, in either the
-// Content-Length or the chunked transfer-encoding framing.
 func hasRequestBody(req *http.Request) bool {
 	if req.ContentLength > 0 {
 		return true
@@ -330,15 +307,11 @@ func hasRequestBody(req *http.Request) bool {
 	return false
 }
 
-// applyFilters checks method, URL length, request body and WebSocket
-// restrictions. Returns an HTTP status code and reason if blocked, or 0 if
-// allowed. Callers must check isDomainAllowed first; this only applies
-// per-request filters.
+// applyFilters returns an HTTP status code and reason if blocked, or 0 if
+// allowed. Callers must check isDomainAllowed first.
 func applyFilters(req *http.Request, host string, cfg Config) (int, string) {
-	// Normalise once and use the same value for every check below. Comparing
-	// the uppercased method against the policy but the raw one against the
-	// GET/HEAD checks let "-X get" satisfy a GET policy and then skip the
-	// restrictions that policy is supposed to carry.
+	// Normalised once and used for every check below, so "-X get" cannot
+	// satisfy a GET policy and then skip the GET/HEAD restrictions.
 	normalizedMethod := strings.ToUpper(req.Method)
 	if !isMethodAllowed(host, normalizedMethod, cfg) {
 		return http.StatusForbidden, "method not allowed"
@@ -357,23 +330,17 @@ func applyFilters(req *http.Request, host string, cfg Config) (int, string) {
 	return 0, ""
 }
 
-// errBlockedAddress marks a refusal to dial an address the policy forbids, as
-// distinct from a dial that was attempted and failed. Callers use it to answer
-// 403 rather than 502 so a refusal is distinguishable from an unreachable host.
+// errBlockedAddress marks a policy refusal to dial, as distinct from a dial
+// that was attempted and failed, so callers answer 403 rather than 502.
 var errBlockedAddress = errors.New("host resolves to a blocked address")
 
 // isBlockedAddr reports whether ip is an address the proxy must never dial.
-//
 // The allowlist matches names, and the address behind a name is chosen by
-// whoever controls its DNS. Without this check, an allowlisted name pointed at
-// 127.0.0.1 would reach exactly the host services allowedLocalPorts exists to
-// gate, since the proxy runs on the host and none of the sandbox's network
-// confinement applies to it.
-//
-// Private ranges (10/8, 172.16/12, 192.168/16) are deliberately not blocked.
-// They are the network around the host rather than the host itself, and
-// allowlisting an internal company server is a legitimate configuration that
-// allowedLocalPorts cannot express.
+// whoever controls its DNS: an allowlisted name pointed at 127.0.0.1 would
+// reach exactly the host services allowedLocalPorts exists to gate, since
+// the proxy runs on the host outside the sandbox's confinement. Private
+// ranges are deliberately not blocked: allowlisting an internal server is a
+// legitimate configuration.
 func isBlockedAddr(ip net.IP) bool {
 	// Judge an IPv4-mapped address such as ::ffff:127.0.0.1 by its v4 value.
 	if v4 := ip.To4(); v4 != nil {
@@ -386,9 +353,8 @@ func isBlockedAddr(ip net.IP) bool {
 }
 
 // resolveVetted resolves host once and returns an "ip:port" literal safe to
-// dial. It refuses if any returned address is blocked. The caller dials the
-// returned literal rather than the name, so a second lookup answering with a
-// blocked address after the check has nothing to win.
+// dial. The caller dials the literal rather than the name, so a second
+// lookup answering with a blocked address after the check has nothing to win.
 func resolveVetted(host, port string) (string, error) {
 	ips, err := net.LookupIP(host)
 	if err != nil {
@@ -405,8 +371,6 @@ func resolveVetted(host, port string) (string, error) {
 	return net.JoinHostPort(ips[0].String(), port), nil
 }
 
-// dialFailureStatus maps an upstream dial failure to the status the client
-// sees: a policy refusal is 403, an unreachable host is 502.
 func dialFailureStatus(err error) int {
 	if errors.Is(err, errBlockedAddress) {
 		return http.StatusForbidden
@@ -483,7 +447,6 @@ func handle(conn net.Conn, cfg Config, ca *certAuthority, redirects Redirects) {
 			fmt.Fprintf(conn, "HTTP/1.1 403 Forbidden\r\n\r\n")
 			return
 		}
-		// MITM: intercept the TLS connection to inspect HTTP requests
 		fmt.Fprintf(conn, "HTTP/1.1 200 Connection Established\r\n\r\n")
 		handleMITM(conn, host, req.Host, cfg, ca, redirects)
 	} else {
@@ -492,7 +455,6 @@ func handle(conn net.Conn, cfg Config, ca *certAuthority, redirects Redirects) {
 			fmt.Fprintf(conn, "HTTP/1.1 403 Forbidden\r\n\r\n")
 			return
 		}
-		// Plaintext HTTP — check domain first, then apply full filtering
 		if !isDomainAllowed(host, cfg) {
 			fmt.Fprintf(os.Stderr, "%s blocked domain: %s\n", time.Now().Format(time.RFC3339), req.Host)
 			fmt.Fprintf(conn, "HTTP/1.1 403 Forbidden\r\n\r\n")
@@ -510,8 +472,6 @@ func handle(conn net.Conn, cfg Config, ca *certAuthority, redirects Redirects) {
 		if req.URL.Scheme == "" {
 			req.URL.Scheme = "http"
 		}
-		// Apply redirect: dial the local override instead of the original
-		// host, preserving the Host header the client sees.
 		if addr, ok := lookupRedirect(host, redirects); ok {
 			if req.Host == "" {
 				req.Host = req.URL.Host
@@ -519,9 +479,8 @@ func handle(conn net.Conn, cfg Config, ca *certAuthority, redirects Redirects) {
 			req.URL.Host = addr
 			req.URL.Scheme = "http"
 		} else {
-			// Same substitution as the redirect above, but with a vetted
-			// literal, so the transport dials the address that was checked
-			// instead of resolving the name a second time.
+			// Dial the vetted literal, so the transport reaches the address
+			// that was checked instead of resolving the name a second time.
 			vetted, err := resolveVetted(host, "80")
 			if err != nil {
 				code := dialFailureStatus(err)
@@ -548,14 +507,12 @@ func handle(conn net.Conn, cfg Config, ca *certAuthority, redirects Redirects) {
 }
 
 func handleMITM(clientConn net.Conn, host, hostPort string, cfg Config, ca *certAuthority, redirects Redirects) {
-	// Mint a certificate for this host
 	leafCert, err := ca.mintCert(host)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s mint cert error for %s: %v\n", time.Now().Format(time.RFC3339), host, err)
 		return
 	}
 
-	// TLS handshake with the client
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{*leafCert},
 	}
@@ -566,8 +523,8 @@ func handleMITM(clientConn net.Conn, host, hostPort string, cfg Config, ca *cert
 	}
 	defer clientTLS.Close()
 
-	// Upstream connection is established lazily on the first allowed request,
-	// so blocked requests never trigger a connection to the remote server.
+	// The upstream connection is established lazily on the first allowed
+	// request, so blocked requests never touch the remote server.
 	var upstreamConn net.Conn
 	var upstreamBuf *bufio.Reader
 	dialUpstream := func() error {
@@ -577,9 +534,8 @@ func handleMITM(clientConn net.Conn, host, hostPort string, cfg Config, ca *cert
 		var conn net.Conn
 		var err error
 		if addr, ok := lookupRedirect(host, redirects); ok {
-			// Redirects are the test harness's escape hatch and deliberately
-			// point at a local address, so they skip vetting. The env var that
-			// sets them is not part of the public API.
+			// Redirects deliberately point at a local address, so they skip
+			// vetting.
 			conn, err = net.Dial("tcp", addr)
 		} else {
 			port := portOf(hostPort)
@@ -591,8 +547,8 @@ func handleMITM(clientConn net.Conn, host, hostPort string, cfg Config, ca *cert
 			if err != nil {
 				return err
 			}
-			// ServerName stays the requested name so the upstream certificate
-			// is still validated against it and not against the literal.
+			// ServerName stays the requested name so the upstream
+			// certificate is validated against it, not the literal.
 			conn, err = tls.Dial("tcp", vetted, &tls.Config{ServerName: host})
 		}
 		if err != nil {
@@ -608,15 +564,13 @@ func handleMITM(clientConn net.Conn, host, hostPort string, cfg Config, ca *cert
 		}
 	}()
 
-	// Read and forward HTTP requests over the decrypted TLS stream
 	clientBuf := bufio.NewReader(clientTLS)
 	for {
 		req, err := http.ReadRequest(clientBuf)
 		if err != nil {
-			return // Client closed or protocol error
+			return
 		}
 
-		// Apply filters to the decrypted request
 		if code, reason := applyFilters(req, host, cfg); code != 0 {
 			fmt.Fprintf(os.Stderr, "%s blocked %s https://%s%s (%s)\n",
 				time.Now().Format(time.RFC3339), req.Method, host, req.URL.Path, reason)
@@ -632,7 +586,6 @@ func handleMITM(clientConn net.Conn, host, hostPort string, cfg Config, ca *cert
 			return
 		}
 
-		// Dial upstream on first allowed request
 		if err := dialUpstream(); err != nil {
 			fmt.Fprintf(os.Stderr, "%s upstream dial error for %s: %v\n", time.Now().Format(time.RFC3339), hostPort, err)
 			code := dialFailureStatus(err)
@@ -647,11 +600,10 @@ func handleMITM(clientConn net.Conn, host, hostPort string, cfg Config, ca *cert
 			return
 		}
 
-		// Forward request directly to upstream (no http.Transport — we
-		// manage the TLS conn ourselves to support keep-alive properly).
+		// Forwarded directly rather than through http.Transport: the TLS
+		// conn is managed here to support keep-alive.
 		req.URL.Scheme = ""
 		req.URL.Host = ""
-		// RequestURI must be the path for a direct (non-proxy) request
 		req.RequestURI = req.URL.RequestURI()
 		if err := req.Write(upstreamConn); err != nil {
 			fmt.Fprintf(os.Stderr, "%s upstream write error for %s: %v\n", time.Now().Format(time.RFC3339), host, err)
@@ -668,7 +620,6 @@ func handleMITM(clientConn net.Conn, host, hostPort string, cfg Config, ca *cert
 		}
 		resp.Body.Close()
 
-		// If either side signals close, stop
 		if resp.Close || req.Close {
 			return
 		}

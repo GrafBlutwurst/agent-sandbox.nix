@@ -1,16 +1,7 @@
 #!/usr/bin/env bash
-# Test: every launch records itself in launch.log, and records nothing secret.
-#
-# The session directory is only useful if it says what happened, and it has to
-# say so on the paths where something went wrong: a refused launch writes its
-# reasons, and a launch that started writes the status the sandbox exited with.
-# Logging is best effort and must never gate a launch, which is the opposite of
-# the convention everywhere else in the launcher.
-#
-# The one thing that must never appear is a declared env value. The spec carries
-# keys alone and the values are resolved by the stub, so the keys are all the
-# launcher could write even if it tried; this asserts that stays true, because
-# it is what makes a session directory safe to attach to an issue.
+# Test: every launch records itself in launch.log, including refusals and
+# the sandbox's exit status, and never records a declared env value. Keys
+# only is what makes a session directory safe to attach to an issue.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

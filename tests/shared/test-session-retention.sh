@@ -1,15 +1,8 @@
 #!/usr/bin/env bash
 # Test: the sessions root keeps a bounded number of session directories, and
-# pruning never touches one whose sandbox is still running.
-#
-# Session directories survive their own run on purpose, so without a prune they
-# accumulate forever, one per launch. The liveness check is the interesting half:
-# a running session's directory is still being read, so deleting it takes the CA
-# bundle out from under the agent on macOS and strands the proxy and the mount
-# points cleanup reads from disk on both platforms.
-#
-# The fake directories below are named the way create_session_dir names them,
-# since that shape is what the prune matches on.
+# pruning never touches one whose sandbox is still running (a running session
+# is still reading its own directory). The fake directories below are named
+# the way create_session_dir names them, which is what the prune matches on.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

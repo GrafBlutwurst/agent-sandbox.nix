@@ -1,23 +1,5 @@
-"""The seatbelt profile, as ordered sections.
-
-Data, not decisions: compute.py assembles these in order and owns that order,
-which is load-bearing. Seatbelt is last-match-wins, so a reordering that
-preserves the rule set can still change what is enforced.
-
-Ported from lib/darwin/seatbelt-profile.nix. The rationale that file carried as
-;; comments inside the profile lives here as Python comments instead: the reader
-who needs it is the one editing these rules, and a comment that is itself
-profile syntax breaks the profile if its ;; is ever lost. What stays in the
-emitted file is one-line section headers, so it remains navigable, plus the two
-denies whose absence would otherwise look like an oversight.
-
-Every (param "X") from the Nix version is gone. Seatbelt params are string-only,
-which is why variable-length lists had to be appended to the file at runtime;
-computing the whole profile here removes the constraint. It also removes the
-sentinels: a session with no repository omits the repo rules rather than
-pointing them at /nonexistent-repo-root, and a session with no tty omits the
-pty rule rather than /nonexistent-tty.
-"""
+"""The seatbelt profile, as ordered sections. compute.py assembles these and
+owns the order, which is load-bearing: seatbelt is last-match-wins."""
 
 from pathlib import Path
 from typing import Sequence
@@ -36,17 +18,12 @@ PROCESS_CONTROL = (
     "(allow signal)",
 )
 
-# Broad sysctl read, with explicit denies for the process-snooping OIDs. Without
-# them, sysctl({1, 49, pid}) (KERN_PROCARGS2) returns the full argv+envp of any
-# host-UID process, which is a complete exfil path for env-var secrets the host
-# shell has set (CLAUDE_CODE_OAUTH_TOKEN, GITHUB_TOKEN, AWS_*) before launching.
-# The integer-MIB form of sysctl(2) resolves to the same canonical names
-# internally, so the name-deny catches both sysctl() and sysctlbyname() callers.
-#
-# Host-identifying single OIDs (kern.hostname, kern.uuid, hw.model,
-# kern.boottime) are deliberately not denied: seatbelt does not appear to
-# intercept them through this filter, and denying kern.hostname breaks uname(2),
-# which reads the hostname as part of a single struct. An accepted leak.
+# sysctl({1, 49, pid}) (KERN_PROCARGS2) returns the argv+envp of any host-UID
+# process; the name-deny catches integer-MIB callers too, because the kernel
+# resolves those to the same canonical names. Host-identifying OIDs
+# (kern.hostname, kern.uuid, hw.model) are deliberately not denied: seatbelt
+# does not intercept them through this filter, and denying kern.hostname
+# breaks uname(2).
 SYSCTLS = (
     "",
     ";; sysctls",
@@ -74,15 +51,10 @@ MACH_IPC = (
     "(allow ipc-posix-shm-write-create)",
 )
 
-# /Library/Preferences is deliberately absent: its plists leak host identity
-# (hostname, MAC addresses, paired Bluetooth devices, recent users, WiFi
-# private-MAC rotation key material).
-#
-# The /System/Volumes deny matters more than it looks. On Catalina and later the
-# data volume mounts at /System/Volumes/Data, with /Library, /Users and
-# /private/var firmlinked from there, so the broad /System allow above would
-# otherwise expose the entire data volume by its canonical address, bypassing
-# every narrower deny on the synthetic paths.
+# /Library/Preferences is deliberately absent: its plists leak host identity.
+# The /System/Volumes deny is load-bearing: /Library, /Users and /private/var
+# are firmlinked from /System/Volumes/Data, so the /System allow would
+# otherwise expose the entire data volume by its canonical address.
 SYSTEM_LIBRARIES = (
     "",
     ";; System libraries & frameworks",
@@ -108,8 +80,6 @@ KEYCHAINS = (
     '  (literal "/private/var/run/systemkeychaincheck.done"))',
 )
 
-# Full read so symlinks into the store (home-manager-managed config files, for
-# instance) are followable. Execution stays restricted to the closure.
 NIX_STORE = (
     "",
     ";; Nix store — read all, exec only the closure below",
@@ -138,24 +108,11 @@ def process_exec(cwd: Path) -> list[str]:
 
 
 def device_nodes(tty: Path | None) -> list[str]:
-    """Device nodes and terminal I/O.
-
-    /dev/tty, the controlling-terminal alias, is deliberately not allowed: it
-    lets a process bypass piped stdin to prompt the human directly, and opens
-    the door to escape-sequence and TIOCSTI injection into the parent shell. The
-    legacy BSD pty families (/dev/pty*, /dev/ttyp*, /dev/ttyq*, /dev/ttyr*) are
-    likewise omitted, since modern macOS allocates via /dev/ptmx and /dev/ttysNNN
-    exclusively.
-
-    Access to the pty slave is pinned to the single terminal the wrapper was
-    launched on, which stops a sandboxed process opening another Terminal, iTerm
-    or tmux pane's pty owned by the same UID: escape-sequence injection, TIOCSTI
-    input injection, keystroke eavesdropping.
-
-    When stdin is not a terminal the rule is omitted entirely, so no slave is
-    reachable. The Nix version could not omit it, because a param reference has
-    to resolve to something, so it pointed at a path that does not exist.
-    """
+    # /dev/tty (the controlling-terminal alias) is deliberately absent: it
+    # bypasses piped stdin to prompt the human, and opens TIOCSTI injection
+    # into the parent shell. Pty slave access is pinned to the one terminal
+    # the wrapper was launched on, or omitted entirely when stdin is not a
+    # terminal.
     lines = [
         "",
         ";; Device nodes & terminal I/O",
@@ -198,14 +155,9 @@ def device_nodes(tty: Path | None) -> list[str]:
 def dns_tls(
     passwd: Path, ca_bundle: Path | None, ca_cert: Path | None
 ) -> list[str]:
-    """macOS uses /private/etc as the real location, with /etc as a symlink.
-
-    The session directory files are granted by name, never by subpath. Granting
-    the directory would also hand over proxy.pid, and the profile deliberately
-    denies kern.proc.* so the sandbox cannot enumerate host processes, while
-    (allow signal) is granted and macOS has no PID namespace. A readable pid
-    file reconstructs by hand the thing those denies exist to prevent.
-    """
+    # Session directory files are granted by name, never by subpath: the
+    # directory also holds proxy.pid, and a readable pid file reconstructs
+    # the process enumeration the kern.proc.* denies exist to prevent.
     lines = [
         "",
         ";; DNS, TLS & name resolution",
@@ -218,8 +170,6 @@ def dns_tls(
         '  (subpath "/private/etc/static")',
         '  (literal "/private/etc/hosts"))',
     ]
-    # Only in restricted mode: without these the sandbox cannot read the CA it
-    # was told to trust, and every TLS handshake through the proxy fails.
     if ca_bundle is not None and ca_cert is not None:
         lines += [
             "(allow file-read*",
@@ -230,15 +180,8 @@ def dns_tls(
 
 
 def temp_dirs(tmpdir: Path) -> list[str]:
-    """Temp directories.
-
-    /private/var/folders, the per-user tree confstr(_CS_DARWIN_USER_*) returns,
-    is deliberately not allowed: it holds 0400/0600 user secrets reachable via
-    the host UID. Tools must respect $TMPDIR.
-
-    The blanket file-write* on /tmp and /private/tmp is wider than it needs to
-    be and is a known finding for unit 5. See the note there.
-    """
+    # /private/var/folders is deliberately absent: it holds 0400/0600 user
+    # secrets reachable via the host UID. Tools must respect $TMPDIR.
     return [
         "",
         ";; Temp directories",
@@ -252,14 +195,7 @@ def temp_dirs(tmpdir: Path) -> list[str]:
 def traversal(
     real_home: Path, sandbox_home: Path, repo_root_parent: Path | None
 ) -> list[str]:
-    """stat() on parent directories, for path resolution.
-
-    "/" needs file-read* because process startup requires readdir on root.
-    Everything else gets file-read-metadata only, so stat() works for path
-    resolution while readdir() cannot enumerate contents. Without at least
-    metadata access, even reaching an allowed subpath fails with EPERM during
-    traversal.
-    """
+    # "/" gets file-read* because process startup requires readdir on root.
     lines = [
         "",
         ";; Filesystem traversal — stat() only, no readdir()",
@@ -287,11 +223,6 @@ def traversal(
 
 
 def ancestor_metadata(ancestors: Sequence[Path]) -> list[str]:
-    """Traversal metadata for each directory between the real home and the repo.
-
-    Appended to the file at runtime in the Nix version, because the list is
-    variable-length and a seatbelt param is a single string.
-    """
     if not ancestors:
         return []
     return ["", ";; Ancestor directories, for traversal only"] + [
@@ -300,7 +231,7 @@ def ancestor_metadata(ancestors: Sequence[Path]) -> list[str]:
 
 
 def sandbox_home(home: Path) -> list[str]:
-    """Read and exec: copilot stores spawn helper binaries in its home."""
+    # Exec too: copilot stores spawn helper binaries in its home.
     return [
         "",
         ";; Sandbox HOME",
@@ -309,12 +240,6 @@ def sandbox_home(home: Path) -> list[str]:
 
 
 def workspace(cwd: Path, repo_root: Path | None, git_dir: Path | None) -> list[str]:
-    """The launch directory, and the repository if there is one.
-
-    The repo rules are omitted rather than pointed at a sentinel when there is
-    no repository, or when git was refused for this session because its root
-    resolved to the real home.
-    """
     lines = [
         "",
         ";; Working directory & repository",
@@ -328,16 +253,8 @@ def workspace(cwd: Path, repo_root: Path | None, git_dir: Path | None) -> list[s
 
 
 def declared_paths(declared: Sequence[DeclaredPath]) -> list[str]:
-    """Per-declared-path allows, in declaration order.
-
-    roDirs and roFiles get no process-exec: the plan rejects a per-bind exec
-    axis, and callers needing to exec from a path should use allowedPackages or
-    rwDirs.
-
-    A roDir nested inside an rwDir stays writable, because seatbelt matches per
-    operation and the enclosing file-write* allow is the only rule matching a
-    write. Fixing that needs explicit denies, not reordering. Unit 5.
-    """
+    # A roDir nested inside an rwDir stays writable: seatbelt matches per
+    # operation, so fixing that needs explicit denies, not reordering.
     if not declared:
         return []
     lines = ["", ";; Declared directories & files"]
@@ -359,18 +276,8 @@ def declared_paths(declared: Sequence[DeclaredPath]) -> list[str]:
 def git_protection(
     protected_dirs: Sequence[Path], protected_files: Sequence[Path]
 ) -> list[str]:
-    """Paths inside the gitdir a sandboxed process must not write.
-
-    These are the paths that would let it run code on the host the next time the
-    user runs git in this repo: hooks, core.hooksPath, alias.* = !cmd,
-    gpg.program, filter.*.smudge in config or config.worktree, and the commondir
-    and .git pointers that redirect git at a gitdir it controls.
-
-    Emitted after the declared-path allows so a declared rwDir containing the
-    gitdir cannot re-grant writes. Reads stay allowed, so git still runs the
-    hooks and reads the config it already has; commits and fetches still work
-    because they write objects/ and refs/, not these.
-    """
+    # Emitted after the declared-path allows, so a declared rwDir containing
+    # the gitdir cannot re-grant writes.
     if not protected_dirs and not protected_files:
         return []
     lines = ["", ";; Git protected paths — deny writes, keep reads"]
@@ -388,19 +295,8 @@ def closure(store_paths: Sequence[Path]) -> list[str]:
 
 
 def nix_support(daemon_socket: Path) -> list[str]:
-    """Nix daemon socket and full-store exec, only when allowNix is set.
-
-    Emitted after the network rules so the socket allow wins over the blanket
-    (deny network-outbound (remote unix-socket)) in unrestricted mode, and
-    supplies the missing permission in restricted mode. The process-exec grant
-    covers the whole store so the agent can exec results the daemon builds after
-    sandbox start, which are not in the allowedPackages closure.
-
-    The socket path must be physical: the kernel resolves symlinks before the
-    seatbelt hook, and Determinate Nix on macOS exposes the upstream path as a
-    symlink, so an unresolved path-literal matches nothing and the connect is
-    denied with EPERM.
-    """
+    # Full-store exec so the agent can run results the daemon builds after
+    # sandbox start, which are not in the closure.
     return [
         "",
         ";; Nix daemon support",
@@ -419,44 +315,12 @@ def unix_sockets(
     nested_ro_dirs: Sequence[Path],
     nested_ro_files: Sequence[Path],
 ) -> list[str]:
-    """AF_UNIX access mirroring the filesystem grants: rw binds, ro connects.
-
-    Emitted only with allowUnixSockets. Seatbelt mediates network-bind and
-    network-outbound on a unix socket as operations independent of the
-    filesystem grants, so a tool whose client and server rendezvous over a
-    socket inside a directory it can already write (sbt/BSP, metals, nailgun)
-    fails at bind() without these. Linux has no per-path gate — with the flag
-    set, a pathname socket can be created wherever the mount namespace is
-    writable and connected to wherever it is visible, because a read-only
-    mount blocks inode creation but exempts connect() as a special-file
-    operation. These rules express the same split: writable_dirs get bind and
-    connect, the declared read-only paths (connect_dirs, connect_files) get
-    connect only.
-
-    Deliberately not extended to every writable path: /tmp and /private/tmp
-    hold host sockets (per-user launchd listeners among them), and granting
-    them would hand over exactly the sockets the blanket deny exists to
-    protect. Read-only grants are different: connect reaches only sockets
-    inside paths the user explicitly declared, which is the exposure the
-    declaration states.
-
-    The nested_ro paths are the declared read-only paths sitting inside the
-    writable scope — in practice inside the launch directory, since a
-    declaration nested inside another declaration is refused at launch. They
-    get explicit bind denies after the allows, or the enclosing subpath allow
-    would let the sandbox create sockets in a directory declared read-only.
-    That the same directory currently accepts plain file writes is issue #84,
-    and its fix — explicit file-write denies — would not touch socket
-    operations, so they are denied here rather than left to it. Only the
-    nested paths, not every ro declaration: a blanket deny would also fire
-    when a writable dir sits inside a read-only one (launching from a
-    subdirectory of an roDir), where the writable grant must win. Connect
-    stays allowed in the nested paths, per the ro rule above.
-
-    Assembled after the network rules, so the allows outrank open mode's
-    blanket (deny network-outbound (remote unix-socket)) by last-match-wins;
-    in filtered mode they are purely additive over deny-default.
-    """
+    # Deliberately not extended to /tmp and /private/tmp, which hold host
+    # sockets (per-user launchd listeners among them). The nested-ro denies
+    # exist because the enclosing writable subpath allow would otherwise let
+    # the sandbox bind inside a directory declared read-only; only the
+    # nested paths get them, so a writable dir inside a read-only one keeps
+    # its grant.
     if not writable_dirs:
         return []
     lines = ["", ";; AF_UNIX sockets — rw grants bind+connect (allowUnixSockets)"]
@@ -487,7 +351,7 @@ def unix_sockets(
 
 
 def _local_port_rules(allowed_local_ports: Sequence[int] | None) -> list[str]:
-    """allowedLocalPorts is TCP-only; None means every host-local TCP port."""
+    # TCP-only; None means every host-local TCP port.
     if allowed_local_ports is None:
         return ['(allow network-outbound (remote ip "localhost:*"))']
     return [
@@ -499,22 +363,10 @@ def _local_port_rules(allowed_local_ports: Sequence[int] | None) -> list[str]:
 def network_restricted(
     proxy_port: int, allowed_local_ports: Sequence[int] | None
 ) -> list[str]:
-    """Localhost only, pinned to the proxy's port.
-
-    Pinning to the port stops the sandbox reaching other loopback services
-    (local databases, dev servers) directly and bypassing the proxy's domain and
-    method filtering.
-
-    UNIX-socket egress is deliberately not allowed: an unrestricted
-    (remote unix-socket) allow lets the sandboxed process connect() to any UNIX
-    socket the host UID can reach, including terminal-emulator IPC, per-user
-    launchd listeners under /private/tmp, and ssh-agent. The proxy speaks TCP,
-    so nothing legitimate needs it.
-
-    The Nix version appended this rule to the file at runtime, once the port was
-    known. Session state is established before the profile is computed, so the
-    port is simply available here.
-    """
+    # Pinned to the proxy port so other loopback services cannot be reached
+    # directly, bypassing the proxy's filtering. UNIX-socket egress is
+    # deliberately absent: it would reach any host socket the UID can
+    # (terminal IPC, ssh-agent), and the proxy speaks TCP.
     return [
         "",
         ";; Network — localhost only, pinned to the proxy port",
@@ -525,28 +377,8 @@ def network_restricted(
 
 
 def network_open(allowed_local_ports: Sequence[int] | None) -> list[str]:
-    """Open internet, narrowed by explicit denies for loopback and AF_UNIX.
-
-    (allow network*) is permissive across bind, inbound and outbound, and across
-    IP families and protocols including AF_UNIX outbound. Two scoped denies
-    narrow it to match the README's "no local services" promise:
-
-    The IP-loopback deny blocks connect() to 127.0.0.0/8 and ::1, one rule
-    covering both, so host loopback services (Postgres, dev servers, an SSH
-    agent over TCP, local API mocks) are unreachable.
-
-    The unix-socket deny blocks AF_UNIX connect() to host sockets. Nothing the
-    sandbox ships needs UNIX-socket egress.
-
-    (allow system-socket) is kept: it gates socket(PF_SYSTEM, ...), meaning
-    kernel-control sockets and utun, not AF_UNIX, and matches what the
-    restricted branch grants.
-
-    The mDNSResponder re-allow is required: macOS getaddrinfo() resolves names
-    over that AF_UNIX socket, so the blanket deny would otherwise kill all
-    in-sandbox DNS. The restricted branch needs no such exception, because the
-    proxy resolves names and the sandbox only dials TCP to the proxy port.
-    """
+    # system-socket gates socket(PF_SYSTEM, ...), meaning kernel-control
+    # sockets and utun, not AF_UNIX.
     return [
         "",
         ";; Network — open, with loopback and AF_UNIX denied",

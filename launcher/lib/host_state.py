@@ -1,26 +1,7 @@
-"""What reading the host returns.
-
-Every path in HostState is physical: parent directories resolved to their
-fully-followed form, final component left alone. Two names for one directory
-never compare equal as strings, and everything downstream compares these paths
-against each other and turns them into bubblewrap and seatbelt rules, where the
-kernel resolves before the rule is matched so a shortcut name matches nothing.
-The final component keeps its own name because whether it is a symlink is a
-distinction the bind decisions depend on.
-
-This module observes and decides nothing. It may read files, resolve symlinks
-and run git; it may not create, delete, prompt, or work out what to bind. The
-rule that keeps the boundary checkable: a fact belongs here if it can be stated
-without naming bubblewrap, seatbelt, binds or rules. So "/etc/resolv.conf names
-a loopback nameserver" is observed here, while "use the systemd file instead" is
-decided in launch_config.
-
-One consequence is deliberate. The git protected-path enumeration always runs,
-even when the launch is about to be refused because the repo root is the real
-home, because that refusal is policy and policy lives in launch_checks. It costs
-one directory walk and two git calls in a rare case, and it is the price of the
-boundary being verifiable by reading signatures.
-"""
+"""Reads the host and decides nothing. Every path returned is physical
+(parents fully followed, final component left alone), because these paths
+become bubblewrap and seatbelt rules and the kernel resolves symlinks before
+either is matched, so an unresolved name would match nothing."""
 
 import os
 import re
@@ -45,19 +26,12 @@ DEFAULT_NIX_DAEMON_SOCKET = Path("/nix/var/nix/daemon-socket/socket")
 @dataclass(frozen=True, kw_only=True)
 class DeclaredPath:
     unexpanded_path: str
-    # Expanded, with parent directories resolved to their fully-followed form.
-    # The final component is not resolved, so a declared path that is itself a
-    # symlink stays one. A relative path is left exactly as expanded: resolving
-    # it would pick a base directory, which is the very choice
-    # get_launch_refusals refuses it for.
+    # A relative path is left exactly as expanded: resolving it would pick a
+    # base directory, which is the very choice get_launch_refusals refuses
+    # it for.
     expanded_path: Path
     mode: Literal["rw", "ro"]
     exists: bool
-    # The trace of resolving expanded_path, split as resolve_path records it:
-    # parent_symlinks are the links met in directory position, which the
-    # sandbox replants; hops are where the final component landed, one entry
-    # per dereference, which the sandbox binds. Both empty for a relative path,
-    # which is never walked.
     parent_symlinks: tuple[Symlink, ...]
     hops: tuple[Path, ...]
 
@@ -69,9 +43,6 @@ class DeclaredFile(DeclaredPath):
 
 @dataclass(frozen=True, kw_only=True)
 class DeclaredDir(DeclaredPath):
-    # One resolution per symlink sitting directly inside the directory. A
-    # declared file cannot have these, which is why the split is by kind rather
-    # than by whether the path is itself a symlink.
     inner_symlinks: tuple[ResolvedPath, ...]
 
 
@@ -79,14 +50,10 @@ class DeclaredDir(DeclaredPath):
 class GitState:
     common_dir: Path
     repo_root: Path
-    # Paths inside the repo that name commands git will run on the host: hooks
-    # directories, config files, and the pointers that redirect git at another
-    # gitdir entirely.
     protected_dirs: tuple[Path, ...]
-    # Each protected file, mapped to whether it exists on the host. A path that
-    # does not exist yet still has to be made read-only rather than merely
-    # creatable, so the backends bind an empty file over it. Paired structurally
-    # rather than positionally, so the two can never drift apart.
+    # Each protected file, mapped to whether it exists on the host: a
+    # missing one still has to be made read-only rather than merely
+    # creatable, so the backends bind an empty file over it.
     protected_files: Mapping[Path, bool]
 
 
@@ -108,8 +75,6 @@ class HostState:
 class HostStateLinux(HostState):
     resolv_conf_names_loopback: bool
     systemd_resolv_conf: Path | None
-    # uname -m, for the seccomp filter: the BPF program checks the audit arch
-    # and carries the syscall number, both of which differ per machine.
     machine: str
 
 
@@ -133,11 +98,6 @@ def _path_is_file(path: Path) -> bool:
 
 
 def _expand_env_var(reference: str, environ: dict[str, str]) -> str:
-    """Resolve one reference, given the text after the `$`: `VAR` or `{VAR}`.
-
-    Raises the bare reason. The caller knows which declared path it came from
-    and adds that context, which keeps this directly testable.
-    """
     _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
     if reference.startswith("{"):
         name = reference[1:-1]
@@ -152,21 +112,11 @@ def _expand_env_var(reference: str, environ: dict[str, str]) -> str:
 
 
 def _expand_path(unexpanded: str, environ: dict[str, str]) -> Path:
-    """Expand `$VAR`, `${VAR}` and a leading `~`, and nothing else.
-
-    Declared paths used to be interpolated into bash, so the shell expanded
-    them, which meant `rwDirs = [ "$(...)" ]` executed. There is no command
-    substitution here. A `$` that is not followed by an identifier or a brace
-    stays literal, so `$(cat /etc/passwd)` survives as itself and then fails the
-    existence check, naming both forms.
-
-    An undefined variable is fatal rather than empty. The shell turned
-    `$TYPO/.claude` into `/.claude` and the error named a path the user never
-    wrote.
-    """
-    # Matches $VAR or ${VAR}. The braced alternative is permissive on purpose,
-    # so unsupported forms like ${VAR:-default} still match and get refused by
-    # name rather than passing through as literal text.
+    """Expand `$VAR`, `${VAR}` and a leading `~`, and nothing else. There is
+    no command substitution, and an undefined variable is fatal rather than
+    empty."""
+    # The braced alternative is permissive on purpose, so unsupported forms
+    # like ${VAR:-default} are refused by name rather than passed through.
     _BASH_VAR_EXPANSION = re.compile(r"\$(\{[^}]*\}|[A-Za-z_][A-Za-z0-9_]*)")
 
     if unexpanded == "~" or unexpanded.startswith("~/"):
@@ -203,8 +153,8 @@ def _get_inner_symlinks(directory: Path) -> tuple[ResolvedPath, ...]:
     try:
         entries = list(directory.iterdir())
     except OSError:
-        # An unreadable or missing declared directory is not this step's
-        # problem; get_launch_refusals reports it.
+        # An unreadable or missing declared directory is reported by
+        # get_launch_refusals.
         return ()
 
     entries.sort()
@@ -224,10 +174,6 @@ def _get_declared_paths(
     paths: list[DeclaredPath] = []
     for unexpanded in declared:
         expanded = _expand_path(unexpanded, environ)
-        # Only an absolute path is walked. Resolving a relative one would pick
-        # a base directory for it, which is the very thing get_launch_refusals
-        # refuses it for, and doing that here would leave the refusal nothing
-        # to see.
         parent_symlinks: tuple[Symlink, ...] = ()
         hops: tuple[Path, ...] = ()
         if expanded.is_absolute():
@@ -299,12 +245,7 @@ def _get_all_gitdirs(common_dir: Path) -> list[Path]:
 
 
 def _is_worktree_config_enabled(git: Path, config: Path) -> bool:
-    """Whether the repo opts in to per-worktree config.
-
-    git honours extensions.worktreeConfig from the repo config alone, never from
-    global config, so a config.worktree written while the extension is off is
-    inert. Read per gitdir, because submodules carry their own setting.
-    """
+    # Read per gitdir, because submodules carry their own setting.
     value = _run_git_command(
         git, "config", "--file", str(config), "--get", "extensions.worktreeConfig"
     )
@@ -314,11 +255,8 @@ def _is_worktree_config_enabled(git: Path, config: Path) -> bool:
 def _get_worktree_pointer_files(
     gitdir: Path, worktree_config_enabled: bool
 ) -> list[Path]:
-    """Per-worktree files inside this gitdir that redirect git elsewhere.
-
-    commondir sends the host's git at a different gitdir entirely, so protecting
-    the config without the pointers to it closes nothing.
-    """
+    # commondir sends the host's git at a different gitdir entirely, so
+    # protecting the config without the pointers to it closes nothing.
     worktrees = gitdir / "worktrees"
     if not worktrees.is_dir():
         return []
@@ -334,12 +272,9 @@ def _get_worktree_pointer_files(
 
 
 def _get_submodule_dot_git(git: Path, gitdir: Path) -> Path | None:
-    """The .git file of the submodule this gitdir belongs to, if it is one.
-
-    core.worktree is set only for submodules and is relative to the gitdir. Left
-    writable, the .git file it points at would redirect the host's git past the
-    hooks and config protected alongside it.
-    """
+    # core.worktree is set only for submodules and is relative to the gitdir.
+    # Left writable, the .git file it points at would redirect the host's
+    # git past the hooks and config protected alongside it.
     submodule_worktree = _run_git_command(
         git, "config", "--file", str(gitdir / "config"), "--get", "core.worktree"
     )
@@ -353,7 +288,6 @@ def _get_submodule_dot_git(git: Path, gitdir: Path) -> Path | None:
 
 
 def _get_protected_files_in_gitdir(git: Path, gitdir: Path) -> list[Path]:
-    """Files inside one gitdir that must not be writable from the sandbox."""
     config = gitdir / "config"
     protected: list[Path] = []
     if config.is_file():
@@ -373,11 +307,8 @@ def _get_protected_files_in_gitdir(git: Path, gitdir: Path) -> list[Path]:
 
 
 def _get_worktree_dot_git_files(git: Path, cwd: Path) -> list[Path]:
-    """Worktree .git files, the same pointer vector as commondir.
-
-    Only worktrees at or under cwd are ever reachable from inside the sandbox;
-    the rest are never bound, so they are out of scope.
-    """
+    # Only worktrees at or under cwd are ever reachable from inside the
+    # sandbox; the rest are never bound.
     listing = _run_git_command(git, "worktree", "list", "--porcelain", cwd=cwd)
     if listing is None:
         return []
@@ -423,8 +354,8 @@ def _read_git_state(git: Path, cwd: Path) -> GitState | None:
 
 
 def _has_controlling_terminal() -> bool:
-    # Reads /dev/tty rather than stdin so a piped stdin does not look like an
-    # absent terminal, which is the distinction the home-directory prompt needs.
+    # /dev/tty rather than stdin, so a piped stdin does not look like an
+    # absent terminal.
     try:
         handle = os.open("/dev/tty", os.O_RDONLY)
     except OSError:
@@ -448,9 +379,8 @@ def _read_closure_paths(closure_paths_file: Path) -> tuple[Path, ...]:
 
 
 def _get_nix_daemon_socket() -> Path:
-    # The kernel resolves symlinks before the seatbelt hook, so a rule holding
-    # the unresolved path never matches. Determinate Nix on macOS exposes the
-    # upstream path as a symlink.
+    # Resolved because Determinate Nix on macOS exposes the upstream path as
+    # a symlink, which a seatbelt path-literal would not match.
     override = os.environ.get("NIX_DAEMON_SOCKET_PATH")
     if override:
         socket = Path(override)
@@ -461,9 +391,9 @@ def _get_nix_daemon_socket() -> Path:
 
 
 def _resolv_conf_names_loopback() -> bool:
-    # systemd-resolved points /etc/resolv.conf at a stub listener on the host's
-    # own loopback, which inside pasta's namespace is a different loopback with
-    # nothing on it.
+    # systemd-resolved points /etc/resolv.conf at a stub listener on the
+    # host's own loopback, which inside pasta's namespace is a different
+    # loopback with nothing on it.
     _LOOPBACK_NAMESERVER = re.compile(r"^nameserver[ \t]+(?:127\.|::1)", re.MULTILINE)
     try:
         text = RESOLV_CONF.read_text(encoding="utf-8")
@@ -473,12 +403,7 @@ def _resolv_conf_names_loopback() -> bool:
 
 
 class _CommonHostState(TypedDict):
-    """The fields both platforms share, typed so `**` is checked.
-
-    Duplicates the field list on HostState, which is the cost of this shape.
-    mypy validates the unpacked keys against the constructor it is splatted
-    into, which it cannot do for a plain dict.
-    """
+    """The fields both platforms share, typed so `**` is checked by mypy."""
 
     cwd: Path
     real_home: Path
@@ -513,9 +438,9 @@ def _common_host_state(
 
     return _CommonHostState(
         cwd=cwd,
-        # Resolved in full, unlike declared paths: the home directory is only
-        # compared, never bound, and it has to match what os.getcwd() reports
-        # even when $HOME is itself a symlink.
+        # Resolved in full, unlike declared paths: the home is only compared,
+        # never bound, and it has to match what os.getcwd() reports even
+        # when $HOME is itself a symlink.
         real_home=Path(os.path.realpath(home)),
         uid=os.getuid(),
         gid=os.getgid(),

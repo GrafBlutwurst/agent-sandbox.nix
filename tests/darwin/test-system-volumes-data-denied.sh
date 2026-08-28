@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 # Test: the data-volume mountpoint at /System/Volumes/Data is not reachable
-# from inside the sandbox. Regression for PENTEST-FINDINGS-2026-06.md §2 —
-# the broad (subpath "/System") allow used to expose the entire data volume
-# via its canonical /System/Volumes/Data/... address, bypassing the
-# /Library/Preferences fix in PR #42 (and every other narrower deny on a
-# synthetic-root path).
+# from inside the sandbox. The broad (subpath "/System") allow would
+# otherwise expose the entire data volume via its canonical address,
+# bypassing every narrower deny on a synthetic-root path.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

@@ -33,10 +33,8 @@
               "$HOME/.copilot"
             ];
             rwFiles = [ ];
-            # Bind your host gitconfig read-only for git identity (recommended).
-            # Set user.name / user.email on the host first, then uncomment:
+            # For git identity, uncomment to bind your host gitconfig (see README):
             # roFiles = [ "$HOME/.config/git/config" ];
-            # (Alternative: set GIT_AUTHOR_* / GIT_COMMITTER_* in env. See README.)
             env = {
               # Pass secrets as shell variable references (e.g. "$TOKEN"), not
               # via builtins.getEnv, so they expand at runtime and stay out of

@@ -1,11 +1,4 @@
-"""The ruleset applied inside pasta's namespace, in `nft -f` syntax.
-
-Vocabulary, not decisions, in the same sense as darwin/seatbelt.py. It knows
-nothing about pasta beyond the gateway address it is handed, so the addressing
-stays owned by compute.py, which is also what puts pasta on the command line.
-
-Pure. Reads no files, runs no subprocesses, prints nothing.
-"""
+"""The ruleset applied inside pasta's namespace, in `nft -f` syntax."""
 
 from typing import Sequence
 
@@ -13,16 +6,12 @@ from typing import Sequence
 def get_nft_rules(
     gateway_ip: str, proxy_port: int | None, allowed_local_ports: Sequence[int] | None
 ) -> list[str]:
-    """The ruleset, as one `nft -f` line per entry.
-
-    Restricted mode drops everything by default and permits only in-namespace
-    loopback and TCP to the proxy. Open mode keeps the default route and drops
-    only traffic addressed to the pasta gateway, which is what blocks host
-    loopback services without touching internet traffic, whose destinations are
-    real server addresses rather than the gateway.
-    """
+    """Restricted mode drops everything by default and permits only
+    in-namespace loopback and TCP to the proxy. Open mode drops only traffic
+    addressed to the pasta gateway, which blocks host loopback services
+    without touching internet traffic."""
     if allowed_local_ports is None:
-        # allowedLocalPorts is TCP-only; null means every host-local TCP port.
+        # TCP-only; null means every host-local TCP port.
         matches = ["meta l4proto tcp"]
     else:
         matches = [f"tcp dport {port}" for port in allowed_local_ports]
@@ -41,8 +30,8 @@ def get_nft_rules(
         rules.append("add rule ip sandbox_filter output oif lo accept")
 
     if matches:
-        # DNAT from sandbox loopback needs route_localnet, and the translated
-        # flow needs SNAT so pasta sees it as coming from the namespace address.
+        # The DNAT'd flow needs SNAT so pasta sees it as coming from the
+        # namespace address.
         rules += [
             "add table ip sandbox_nat",
             "add chain ip sandbox_nat output "

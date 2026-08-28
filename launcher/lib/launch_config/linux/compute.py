@@ -1,13 +1,6 @@
-"""What to launch on Linux, and the order the arguments constraining it go in.
-
-Pure. Reads no files, runs no subprocesses, prints nothing.
-
-Order is load-bearing here, the way it is in darwin/compute.py, for a different
-reason. Bubblewrap mount destinations overlay, so a bind emitted later can cover
-one emitted earlier. binds.py works out which binds each path needs and groups
-them; this module decides the sequence they are emitted in, and that sequence is
-what is enforced.
-"""
+"""Computes the Linux launch: the argv and the bubblewrap arguments. Mount
+destinations overlay in order, so the emission order here is what is
+enforced."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,15 +33,15 @@ from launcher.lib.launch_config.shared import (
 from launcher.lib.session_state import SessionState
 
 SANDBOX_TMPDIR = Path("/tmp")
-# Where the sandbox sees its certificates and identity. Fixed paths rather than
-# the session directory's own, so nothing inside learns where that is.
+# Fixed paths rather than the session directory's own, so nothing inside the
+# sandbox learns where that is.
 SANDBOX_CA_BUNDLE = Path("/tmp/sandbox-ca-bundle.pem")
 SANDBOX_CA_CERT = Path("/tmp/sandbox-ca-cert.pem")
 SANDBOX_PASSWD = Path("/etc/passwd")
 
-# pasta forwards <gateway>:<port> to 127.0.0.1:<port> on the host, which is both
-# how the sandbox reaches the proxy and why the gateway has to be firewalled in
-# open mode.
+# pasta forwards <gateway>:<port> to 127.0.0.1:<port> on the host, which is
+# both how the sandbox reaches the proxy and why the gateway has to be
+# firewalled in open mode.
 PASTA_GATEWAY_IP = "10.0.2.2"
 PASTA_NAMESPACE_IP = "10.0.2.1"
 PASTA_NETMASK = "255.255.255.0"
@@ -80,25 +73,14 @@ ROUTE_LOCALNET_SYSCTLS = (
 
 @dataclass(frozen=True, kw_only=True)
 class NetworkConfig:
-    """Everything the in-namespace entry point applies, as one artifact.
-
-    It carries the binary paths too, so that entry point holds no policy and no
-    hardcoded paths: it reads this, does what it says, and execs onwards.
-    """
+    """Everything apply_network_rules applies, binary paths included, so that
+    entry point holds no policy of its own."""
 
     nft: Path
     ip: Path
-    # Only in restricted mode. Belt and braces over the drop policy, but it is a
-    # security control and turning it into a no-op is not this port's call.
     delete_default_route: bool
-    # /proc/sys writes an nft ruleset cannot express.
     sysctls: Mapping[str, str]
     rules: tuple[str, ...]
-    # The AF_UNIX-denying BPF program to leave open on SECCOMP_FD for
-    # bubblewrap, or None with allowUnixSockets. In here rather than beside
-    # the bwrap args because the entry point is the only process that can
-    # open a descriptor bubblewrap inherits: pasta does not pass one to its
-    # child.
     seccomp_filter: Path | None
 
 
@@ -106,21 +88,14 @@ class NetworkConfig:
 class SandboxLaunchConfigLinux(SandboxLaunchConfig):
     bwrap_args: tuple[str, ...]
     network: NetworkConfig
-    # The program network.seccomp_filter points at, carried as a value so the
-    # whole launch stays assertable without a filesystem. write.py writes it.
     seccomp_program: bytes | None
 
 
 def _get_computed_env(
     spec: SandboxBuildSpecLinux, host: HostStateLinux, session: SessionState
 ) -> list[str]:
-    """The environment the launcher decides, as K=V arguments to env -i.
-
-    Bubblewrap passes its own environment through, so these reach the sandbox
-    without --setenv. Dropping --clearenv and --setenv also keeps the declared
-    values off /proc/<pid>/cmdline, which is world-readable, and puts them in
-    /proc/<pid>/environ, which is not.
-    """
+    # Passed through bubblewrap's environment rather than --setenv, which
+    # also keeps the values off world-readable /proc/<pid>/cmdline.
     pairs = [
         f"HOME={host.real_home}",
         f"SHELL={spec.shell}",
@@ -163,21 +138,20 @@ def _get_bwrap_args(
     binds: DeclaredBinds,
     git_args: Sequence[str],
 ) -> list[str]:
-    """Everything bubblewrap reads from the args file, in emission order."""
     args: list[str] = []
 
     if session.proxy is None:
         # systemd-resolved points /etc/resolv.conf at a stub listener on the
         # host's own loopback, which inside pasta's namespace is a different
-        # loopback with nothing on it. The systemd file holds the real upstream
-        # addresses, which are routable from the namespace.
+        # loopback with nothing on it; the systemd file holds the real
+        # upstream addresses.
         if host.resolv_conf_names_loopback and host.systemd_resolv_conf is not None:
             resolv_conf = host.systemd_resolv_conf
         else:
             resolv_conf = Path("/etc/resolv.conf")
         args += ["--ro-bind", str(resolv_conf), "/etc/resolv.conf"]
     else:
-        # DNS is the proxy's job in restricted mode; the sandbox resolves nothing.
+        # DNS is the proxy's job in restricted mode.
         args += ["--ro-bind", "/dev/null", "/etc/resolv.conf"]
 
     if spec.allow_nix:
@@ -210,9 +184,8 @@ def _get_bwrap_args(
     args += list(binds.ro_file_binds)
     args += list(binds.parent_dirs)
     args += list(binds.symlink_targets)
-    # Last of the declared-path arguments. Bubblewrap cannot mount onto a
-    # symlink it has already planted, and it works through this list in order,
-    # so anything wanting a destination under one of these has to come first.
+    # Last of the declared-path arguments: bubblewrap cannot mount onto a
+    # symlink it has already planted.
     args += list(binds.parent_symlinks)
     args += list(git_args)
 
@@ -224,9 +197,8 @@ def _get_bwrap_args(
 
     args += ["--symlink", str(spec.shell), "/bin/sh"]
     args += ["--symlink", str(spec.dependencies.env), "/usr/bin/env"]
-    # The descriptor apply_network_rules leaves open, holding the program in
-    # network.seccomp_filter. Denies socket(AF_UNIX, ...) with EPERM; see
-    # seccomp.py for why the platform needs a syscall filter at all.
+    # The descriptor apply_network_rules leaves open, holding the AF_UNIX
+    # deny filter.
     if not spec.allow_unix_sockets:
         args += ["--seccomp", str(SECCOMP_FD)]
     args += ["--unshare-all", "--hostname", "sandbox"]
@@ -241,9 +213,6 @@ def compute_launch_config(
     host: HostStateLinux,
     session: SessionState,
 ) -> SandboxLaunchConfigLinux:
-    # Not host.git: a repository whose root is the home directory, or above it,
-    # is refused here and git disabled for the session. Everything below takes
-    # the usable state, so nothing binds a root this rejected.
     git, warnings = get_usable_git_state(host)
     warnings += get_sessions_root_warnings(host, session.session_dir)
     prefixes = get_bound_prefixes(spec, host, git)
@@ -253,6 +222,8 @@ def compute_launch_config(
     proxy_port = session.proxy.port if session.proxy is not None else None
     sysctls: dict[str, str] = {}
     if spec.allowed_local_ports is None or spec.allowed_local_ports:
+        # DNAT from the sandbox's loopback needs route_localnet, which no nft
+        # ruleset can express.
         sysctls = {path: "1" for path in ROUTE_LOCALNET_SYSCTLS}
 
     if spec.allow_unix_sockets:
@@ -260,7 +231,7 @@ def compute_launch_config(
         seccomp_filter = None
     else:
         # launch_checks has already refused any machine the filter cannot be
-        # built for, so this cannot raise here.
+        # built for.
         seccomp_program = get_unix_deny_filter(host.machine)
         seccomp_filter = session.session_dir / SECCOMP_FILTER
 
@@ -283,15 +254,8 @@ def compute_launch_config(
         ]
         + _get_computed_env(spec, host, session)
     )
-    # Bubblewrap's arguments are inline rather than read from the args file it
-    # also gets written to. --args needs a descriptor, and pasta does not pass
-    # an inherited one to its child, so the only place left to open it is the
-    # network entry point, which would put bubblewrap's argument passing inside
-    # the module that configures the namespace. Inline costs nothing: these are
-    # argv entries the whole way, NUL-separated in the artifact and expanded as
-    # a quoted array by the stub, so a path containing a space or a newline
-    # stays one argument. What it does not do is hide the paths, and nothing was
-    # hiding them anyway: they are in the spec, in the world-readable store.
+    # Bubblewrap's arguments are inline rather than read via --args, which
+    # needs an inherited descriptor pasta does not pass to its child.
     argv_after_env = (
         [str(spec.dependencies.bwrap)]
         + bwrap_args

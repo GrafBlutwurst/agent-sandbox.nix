@@ -1,27 +1,10 @@
 #!/usr/bin/env bash
 # Test: the paths that let a sandboxed process run code on the host the next
-# time git is used are read-only, for the whole repo the sandbox was launched
-# in. Regression for SANDBOX-FINDINGS.md §5 and its follow-ups.
-#
-# The boundary is the repo you launched in, however you entered it. That repo
-# owns more than the common gitdir's hooks/ and config:
-#
-#   hooks/, config                     content, for every gitdir it owns
-#   config.worktree                    content, when extensions.worktreeConfig
-#                                      is on (main and linked worktrees)
-#   modules/**/{hooks,config}          content, for submodules at any depth
-#   worktrees/*/commondir              pointer, redirects the host's git
-#   a worktree's or submodule's .git   pointer, same
-#
-# Both backends bind the common gitdir read-write so commits and fetches keep
-# working, then take these back: Linux ro-binds them on top, darwin appends
-# deny rules to the end of the seatbelt profile where they outrank the
-# read-write allow (last-match-wins). The list is enumerated from the gitdir
-# itself, so it never searches the working tree.
-#
-# Repos that merely happen to sit under a writable launch directory are out of
-# scope, and the last case here pins that as a decision rather than an
-# accident.
+# time git is used (hooks, config, config.worktree, submodule gitdirs, and
+# the commondir/.git pointers that redirect git elsewhere) are read-only for
+# the repo the sandbox was launched in, while commits and fetches keep
+# working. Repos that merely sit under a writable launch directory are a
+# documented non-goal, pinned by the last case here.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

@@ -1,19 +1,12 @@
 #!/usr/bin/env bash
 # Test: with allowUnixSockets = true, AF_UNIX sockets work inside the
-# directories the sandbox can write (here: the launch directory), and host
-# sockets outside those directories stay unreachable.
-#
-# Both network modes are exercised, because the allows work by different
-# mechanisms: in filtered mode they are additive over seatbelt's deny-default;
-# in open mode they must outrank the blanket
-# (deny network-outbound (remote unix-socket)) by last-match. The flag-off
-# behaviour is covered by test-unix-socket-egress-denied.sh.
-#
-# A third variant declares a read-only directory nested inside the launch
-# dir, and asserts the ro socket semantics hold inside the writable scope:
-# connect works (ro grants connect), but the enclosing subpath allow must not
-# let the sandbox bind there (the issue #84 interaction — its file-write fix
-# would not cover socket operations).
+# directories the sandbox can write, and host sockets outside them stay
+# unreachable. Both network modes are exercised, because the allows work by
+# different mechanisms: additive over deny-default in filtered mode,
+# outranking the blanket unix-socket deny by last-match in open mode. A
+# third variant asserts the ro semantics inside the writable scope: connect
+# works, bind is denied (issue #84). Flag-off behaviour is covered by
+# test-unix-socket-egress-denied.sh.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

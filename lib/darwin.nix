@@ -1,23 +1,4 @@
-/*
-  mkDarwinSandbox — wraps a binary using macOS Seatbelt (sandbox-exec).
-
-  This file no longer knows what a seatbelt profile looks like. It validates
-  arguments and decides what enters the closure; the spec, the launcher
-  package, the env fragment and the stub are assembled by lib/shared.nix,
-  which both platforms share. Everything about the sandbox itself lives in
-  launcher/, where it can be read, type-checked and tested without building
-  anything.
-
-  Nix keeps eval-time argument validation deliberately: validateAllowedLocalPorts
-  and assertNoLegacyArgs throw when the shell is built, not when the agent is
-  launched, and moving them into Python would turn a build error into a runtime
-  one.
-
-  Nix also keeps writeClosure, and keeps deciding what enters the closure. The
-  proxy is referenced only from the spec's proxy block, which is omitted when
-  allowedDomains is unset, so an unrestricted wrapper does not carry the Go
-  proxy.
-*/
+# mkDarwinSandbox. Everything about the sandbox itself lives in launcher/.
 { pkgs, shared }:
 {
   pkg,
@@ -33,14 +14,10 @@
   env ? { },
   allowedDomains ? null,
   allowedLocalPorts ? [ ],
-  # Internal: maps "host" → "addr:port" so the proxy dials the local address
-  # for those hosts instead of resolving the original. Used by the test
-  # harness to point fake domains at a local httpbin. Not part of the
-  # public API — leading underscore signals internal-only.
+  # Internal, for the test harness: maps "host" to "addr:port" so the proxy
+  # dials a local address instead of resolving the original.
   _proxyRedirects ? { },
-  # Legacy args that should not be used in new code. Still accepted for
-  # backward compatibility, but will throw an error if used with
-  # assertNoLegacyArgs.
+  # Legacy args: accepted so assertNoLegacyArgs can name them in its error.
   restrictNetwork ? null,
   extraEnv ? null,
   stateDirs ? null,
