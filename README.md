@@ -44,10 +44,8 @@ The sandbox denies everything else. `$HOME` is an ephemeral writable tmpfs that 
     * [Node.js with npm](#nodejs-with-npm)
 * [Troubleshooting](#troubleshooting)
     * [Session directories](#session-directories)
-    * [Filesystem access issues](#filesystem-access-issues)
-    * [Network access issues](#network-access-issues)
-    * [macOS: unexpected sandbox denials](#macos-unexpected-sandbox-denials)
-    * [macOS: localhost service denials](#macos-localhost-service-denials)
+    * [Reproduce it interactively](#reproduce-it-interactively)
+    * [macOS: system denial log](#macos-system-denial-log)
 * [Security](#security)
     * [What it protects against](#what-it-protects-against)
     * [What it doesn't protect against](#what-it-doesnt-protect-against)
@@ -203,6 +201,8 @@ allowedLocalPorts = [ 3000 5432 ];
 ```
 
 Set `allowedLocalPorts = null;` to allow all host-local TCP ports. Keep explicit port lists as short as possible. Broad access can expose host-local services.
+
+On macOS, a service started inside the sandbox also needs its port listed here, because `sandbox-exec` shares localhost with the host and cannot tell the two apart. See [Linux vs macOS](#linux-vs-macos).
 
 ### UNIX-domain sockets
 
@@ -420,69 +420,38 @@ The other files hold the configuration that the launch was assembled from, so th
 
 The sandbox keeps the directories of the newest 25 launches and prunes the others at the next launch. It never prunes the directory of a session whose sandbox still runs, whatever its age.
 
-A session directory holds no secrets, so it is safe to attach to an issue. The values from `env` never reach it. The launcher's shell resolves the values and passes them straight to the sandbox, and only the names are recorded.
-
-### Filesystem access issues
-
-If a tool call, a file read, or a file write fails, the sandbox probably blocks a path. Add the path to `rwDirs` or `rwFiles`, or to `roDirs` or `roFiles` for read-only access.
-
-The easiest way to examine the sandbox environment is to wrap `bash` itself with the same config as your agent, and then explore it interactively.
-
-```nix
-# mirror your agent's config
-bash-sandboxed = sandbox.mkSandbox {
-  pkg = pkgs.bashInteractive;
-  binName = "bash";
-  outName = "bash-sandboxed";
-  allowedPackages = [ pkgs.coreutils ];
-  rwDirs = [ "$HOME/.claude" ];
-  rwFiles = [];
-  allowedDomains = { "httpbin.org" = "*"; };
-};
-```
-
-`bash-sandboxed` starts a shell with exactly the same filesystem view and the same restrictions as your agent. Try these commands:
-
-```bash
-touch "$TMPDIR/test" && rm "$TMPDIR/test"   # $TMPDIR should be writable
-curl https://example.com          # depends on your allowedDomains setting
-which git                         # allowedPackages should be on PATH
-ls /some/other/path               # should fail, confirming the sandbox is active
-cat ~/.ssh/id_ed25519             # should fail: undeclared files in $HOME are not readable
-ls $HOME                          # empty dir with symlinks to rwDirs
-touch $HOME/.test && rm $HOME/.test  # writes allowed (but ephemeral)
-ls $HOME/.claude                  # should work if in rwDirs (symlinked)
-curl https://httpbin.org/get      # allowed domain: should work
-curl https://example.com          # blocked domain: should fail
-```
-
-See [`debug/bash.shell.nix`](debug/bash.shell.nix) for a template you can use directly. It sets `allowedDomains` to `httpbin.org` for testing.
-
-### Network access issues
-
-If you set `allowedDomains` and requests fail, check which domains are blocked. The proxy's log is in the session directory for the run:
+To watch the proxy reject domains as they happen:
 
 ```bash
 tail -f "$(ls -dt ~/.local/state/agent-sandbox/* | head -1)/proxy.log"
 ```
 
-You may need to add those domains to `allowedDomains`.
+A session directory holds no secrets, so it is safe to attach to an issue.
 
-On macOS, `gh` and other Go-based tools can fail with a certificate error rather than a blocked request. The tool rejects the filtering proxy's certificate, and the domain is not the problem. See [Caveats](#caveats).
+### Reproduce it interactively
 
-### macOS: unexpected sandbox denials
+`launch.log` records what the sandbox was configured to allow. To see what a process actually hits, wrap `bash` itself with the same config as your agent and explore. [`debug/bash.shell.nix`](debug/bash.shell.nix) is a template you can use directly: mirror your agent's `rwDirs`, `rwFiles`, `allowedPackages`, and `allowedDomains` into it, then run `nix-shell debug/bash.shell.nix`.
 
-After a failure, you can query the system log for sandbox denials:
+The shell has exactly the same filesystem view and the same restrictions as your agent. Try these:
+
+```bash
+ls $HOME/.claude                  # should work if in rwDirs (symlinked)
+cat ~/.ssh/id_ed25519             # should fail: undeclared files in $HOME are not readable
+which git                         # allowedPackages should be on PATH
+curl https://example.com          # should fail if not in allowedDomains
+```
+
+If a path the agent needs is blocked, add it to `rwDirs` or `rwFiles`, or to `roDirs` or `roFiles` for read-only access.
+
+### macOS: system denial log
+
+`launch.log` and `seatbelt.sb` show the profile that `sandbox-exec` enforced, not which rule a process tripped. For that, query the system log after a failure:
 
 ```bash
 log show --predicate 'eventMessage CONTAINS "deny"' --last 1m
 ```
 
-If the sandbox blocks something that your config should allow, this log can show which path or operation `sandbox-exec` denied.
-
-### macOS: localhost service denials
-
-If a sandboxed process cannot reach another sandboxed process on `localhost:<port>`, add that port to `allowedLocalPorts`. You can also allow all host-local TCP ports with `allowedLocalPorts = null;`. This applies to macOS only. `sandbox-exec` shares localhost with the host, so it cannot tell sandbox-internal services apart from host-local ones. See [Linux vs macOS](#linux-vs-macos) for the full explanation. The same access also opens those host-local ports, so keep explicit lists narrow.
+Nothing in the session directory records this, so pair the log with `seatbelt.sb` when something your config should allow is blocked.
 
 ## Security
 
