@@ -314,7 +314,15 @@ def compute_launch_config(
         network=NetworkConfig(
             nft=spec.dependencies.nft,
             ip=spec.dependencies.ip,
-            delete_default_route=session.proxy is not None,
+            # Deleting the default route is redundant defense on top of the
+            # OUTPUT drop policy — but with inbound forwards it breaks them:
+            # replies to a non-local peer (a docker container's address) have
+            # no route and die before nftables ever sees them, so the
+            # handshake stalls until pasta resets the peer. Keep the route
+            # when inbound ports are granted; the drop policy remains the
+            # egress enforcement either way.
+            delete_default_route=session.proxy is not None
+            and not spec.allowed_inbound_ports,
             sysctls=sysctls,
             rules=tuple(
                 get_nft_rules(

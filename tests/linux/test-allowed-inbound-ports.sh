@@ -41,6 +41,10 @@ cleanup() {
 		kill "$SANDBOX_PID" 2>/dev/null || true
 		wait "$SANDBOX_PID" 2>/dev/null || true
 	fi
+	# The sandboxed server tree (pasta/bwrap/python) detaches from the
+	# launcher PID; without this it survives the run and squats the port,
+	# failing the next run's setup check.
+	pkill -f "inside-http-serve.py 0.0.0.0 $GRANTED_PORT" 2>/dev/null || true
 	rm -rf "$TESTDIR"
 }
 trap cleanup EXIT
@@ -102,6 +106,15 @@ fi
 
 expect_fail run_host "host cannot reach an undeclared port" \
 	"'$HOST_PYTHON3' -c 'import sys, urllib.request; urllib.request.urlopen(\"http://127.0.0.1:$UNDECLARED_PORT/\", timeout=3)'"
+
+# Inbound grants keep the namespace's default route (replies to non-local
+# peers need it), leaving the OUTPUT drop policy as the sole egress
+# enforcement — pin that direct egress is still blocked in this
+# configuration. The socket timeout makes this deterministic with or
+# without real internet on the test host.
+run_inside() { "$SHELL_BIN" --norc --noprofile -c "$1" >/dev/null 2>&1; }
+expect_fail run_inside "direct egress stays blocked while inbound ports are granted" \
+	"python3 -c 'import socket; s = socket.socket(); s.settimeout(5); s.connect((\"1.1.1.1\", 443))'"
 
 print_results
 exit_status
