@@ -76,11 +76,16 @@ def _get_pasta_tcp_flags(
     allowed_inbound_ports: Sequence[InboundPort],
 ) -> list[str]:
     """The -t forwards: host bind_addr:port reaches the same port inside the
-    namespace. pasta splices each forward over the namespace loopback — the
-    sandboxed server sees 127.0.0.1 as its peer and must listen on loopback
-    or 0.0.0.0 — so replies ride the existing `oif lo accept` nft rule and
-    no ruleset change is needed. Everything not named here stays
-    unforwarded: pasta only binds what -t lists."""
+    namespace. Delivery depends on the peer: a host-LOCAL peer is spliced
+    over the namespace loopback (server sees 127.0.0.1), while a non-local
+    peer — e.g. a docker container dialing the bind address — arrives over
+    the tap device addressed to the namespace IP with its real source
+    address. A server bound only to 127.0.0.1 is therefore unreachable for
+    non-local peers: listen on 0.0.0.0 for container callbacks. Spliced
+    replies ride `oif lo accept`; tap replies need the per-port
+    `ct state established` accepts get_nft_rules emits for these forwards.
+    Everything not named here stays unforwarded: pasta only binds what -t
+    lists."""
     if not allowed_inbound_ports:
         return ["-t", "none"]
     flags: list[str] = []
@@ -312,7 +317,12 @@ def compute_launch_config(
             delete_default_route=session.proxy is not None,
             sysctls=sysctls,
             rules=tuple(
-                get_nft_rules(PASTA_GATEWAY_IP, proxy_port, spec.allowed_local_ports)
+                get_nft_rules(
+                    PASTA_GATEWAY_IP,
+                    proxy_port,
+                    spec.allowed_local_ports,
+                    [forward.port for forward in spec.allowed_inbound_ports],
+                )
             ),
             seccomp_filter=seccomp_filter,
         ),
