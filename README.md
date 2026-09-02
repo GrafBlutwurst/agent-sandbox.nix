@@ -28,6 +28,7 @@ The sandbox denies everything else. `$HOME` is an ephemeral writable tmpfs that 
     * [Network restrictions](#network-restrictions)
         * [Domain and internet access](#domain-and-internet-access)
         * [Host-local ports](#host-local-ports)
+        * [Inbound ports](#inbound-ports)
     * [UNIX-domain sockets](#unix-domain-sockets)
     * [Supported agents](#supported-agents)
 * [Authentication](#authentication)
@@ -129,6 +130,7 @@ To keep the original command name as the alias, change the `outName` value, for 
 | `allowedDomains` | no | Limits the domains the sandbox can reach. Leave it unset for open internet. Accepts a list of domains (all methods allowed), or an attrset that maps each domain to `"*"` or to a list of HTTP methods. `[ ]` blocks all internet access. |
 | `allowUnixSockets` | no | If `true`, the agent can create and connect to UNIX-domain (AF_UNIX) sockets. It can connect in directories it can read, and bind in directories it can write. Defaults to `false`. See [UNIX-domain sockets](#unix-domain-sockets). |
 | `allowedLocalPorts` | no | Host-local TCP ports the sandbox can reach. Defaults to `[ ]`. Set it to `null` to allow all host-local TCP ports. Otherwise, entries must be integers from `1` to `65535`. |
+| `allowedInboundPorts` | no | Host TCP ports forwarded INTO the sandbox, so services the agent runs are reachable from outside. Defaults to `[ ]`. Entries are an integer port (bound to `127.0.0.1`) or `{ port = <int>; bindAddr = "<ipv4>"; }`. There is no `null` form. See [Inbound ports](#inbound-ports). |
 | `allowNix` | no | If `true`, the sandbox exposes the host's `nix-daemon` socket and the full Nix store, so the agent can run `nix build`, `nix run`, `nix develop`, and similar commands. The sandbox adds `pkgs.nix` to PATH. Requires `allowUnixSockets = true`. Defaults to `false`. See [Using Nix inside the sandbox](#using-nix-inside-the-sandbox). |
 
 The sandbox adds `bash` and `cacert` to `allowedPackages` by default. The sandbox needs a shell to run, and `cacert` is necessary for HTTPS. The library also exports `commonTools`, a list of standard CLI tools. See [`default.nix`](default.nix) for the full list.
@@ -172,7 +174,7 @@ The example sets `CLAUDE_CONFIG_DIR` to `$HOME/.claude` so that Claude writes `~
 
 ### Network restrictions
 
-The sandbox controls network access with two independent settings. `allowedDomains` controls outbound internet access. `allowedLocalPorts` controls access to host-local TCP services, such as databases and dev servers. The two settings do not interact. An allowed domain never gives loopback access, and an allowed local port never gives internet access. By default, internet access is open and all host-local services are blocked.
+The sandbox controls network access with three independent settings. `allowedDomains` controls outbound internet access. `allowedLocalPorts` controls access to host-local TCP services, such as databases and dev servers. `allowedInboundPorts` controls which sandbox-hosted TCP services are reachable from outside. The settings do not interact. An allowed domain never gives loopback access, an allowed local port never gives internet access, and neither makes anything inside the sandbox reachable — only `allowedInboundPorts` does that. By default, internet access is open, all host-local services are blocked, and nothing inside the sandbox is reachable from outside.
 
 #### Domain and internet access
 
@@ -203,6 +205,21 @@ allowedLocalPorts = [ 3000 5432 ];
 Set `allowedLocalPorts = null;` to allow all host-local TCP ports. Keep explicit port lists as short as possible. Broad access can expose host-local services.
 
 On macOS, a service started inside the sandbox also needs its port listed here, because `sandbox-exec` shares localhost with the host and cannot tell the two apart. See [Linux vs macOS](#linux-vs-macos).
+
+#### Inbound ports
+
+`allowedLocalPorts` is outbound only: it never makes anything the agent runs reachable from outside the sandbox. When something outside must call INTO the sandbox — an integration-test suite that hosts a callback server, a dev server you want to open in the host browser — declare the ports with `allowedInboundPorts`:
+
+```nix
+allowedInboundPorts = [
+  3000                                      # host 127.0.0.1:3000 → sandbox :3000
+  { port = 8000; bindAddr = "0.0.0.0"; }    # reachable from anything that can reach the host
+];
+```
+
+Each entry forwards `bindAddr:port` on the host to the same port inside the sandbox. On Linux the forward is a pasta TCP splice over the sandbox loopback, so the sandboxed server must listen on `127.0.0.1` or `0.0.0.0` and sees `127.0.0.1` as its peer. On macOS there is no network namespace: the grant allows the sandboxed process to bind and accept on that port directly, and a non-loopback `bindAddr` maps to the Seatbelt wildcard.
+
+The `bindAddr` is the exposure decision. The `127.0.0.1` default is reachable from host processes only. Anything wider — `0.0.0.0`, or a container bridge address such as docker's `172.17.0.1` so containers can call back via `host.docker.internal` — exposes whatever the agent runs on that port to everything that can reach that address. Declare individual fixed ports, never ranges, and prefer the narrowest `bindAddr` that serves the caller.
 
 ### UNIX-domain sockets
 

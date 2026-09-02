@@ -30,6 +30,19 @@ class ProxySpec:
 
 
 @dataclass(frozen=True, kw_only=True)
+class InboundPort:
+    """One host→sandbox TCP forward: bind_addr:port on the host reaches the
+    same port inside the sandbox."""
+
+    port: int
+    bind_addr: str
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> Self:
+        return cls(port=int(data["port"]), bind_addr=str(data["bind_addr"]))
+
+
+@dataclass(frozen=True, kw_only=True)
 class DependenciesLinux:
     git: Path
     bwrap: Path
@@ -83,6 +96,9 @@ class SandboxBuildSpec:
     env_keys: tuple[str, ...]
     # None means every host-local TCP port; the empty tuple means none.
     allowed_local_ports: tuple[int, ...] | None
+    # Host→sandbox TCP forwards; the empty tuple means none. Deliberately no
+    # None form: inbound has no "all ports" mode.
+    allowed_inbound_ports: tuple[InboundPort, ...]
     closure_paths_file: Path
     cacert_dir: Path
     cacert_bundle: Path
@@ -120,6 +136,7 @@ class _CommonBuildSpec(TypedDict):
     ro_files: tuple[str, ...]
     env_keys: tuple[str, ...]
     allowed_local_ports: tuple[int, ...] | None
+    allowed_inbound_ports: tuple[InboundPort, ...]
     closure_paths_file: Path
     cacert_dir: Path
     cacert_bundle: Path
@@ -135,6 +152,10 @@ def _common_build_spec(data: Mapping[str, Any]) -> _CommonBuildSpec:
         allowed_local_ports = None
     else:
         allowed_local_ports = tuple(ports)
+
+    allowed_inbound_ports = tuple(
+        InboundPort.from_dict(entry) for entry in data["allowed_inbound_ports"]
+    )
 
     proxy_data = data.get("proxy")
     if proxy_data is None:
@@ -154,6 +175,7 @@ def _common_build_spec(data: Mapping[str, Any]) -> _CommonBuildSpec:
         ro_files=tuple(data["ro_files"]),
         env_keys=tuple(data["env_keys"]),
         allowed_local_ports=allowed_local_ports,
+        allowed_inbound_ports=allowed_inbound_ports,
         closure_paths_file=Path(data["closure_paths_file"]),
         cacert_dir=Path(data["cacert_dir"]),
         cacert_bundle=Path(data["cacert_bundle"]),

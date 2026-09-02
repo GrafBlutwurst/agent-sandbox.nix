@@ -60,6 +60,14 @@ def write_launch_request(
     else:
         local_ports = _NONE
 
+    if spec.allowed_inbound_ports:
+        inbound_ports = ", ".join(
+            f"{forward.bind_addr}/{forward.port}"
+            for forward in spec.allowed_inbound_ports
+        )
+    else:
+        inbound_ports = _NONE
+
     if spec.proxy is None:
         network = "unrestricted"
     else:
@@ -77,6 +85,7 @@ def write_launch_request(
             _field("allowNix", str(spec.allow_nix).lower()),
             _field("allowUnixSockets", str(spec.allow_unix_sockets).lower()),
             _field("allowedLocalPorts", local_ports),
+            _field("allowedInboundPorts", inbound_ports),
             # Keys only. The values must never land here: keeping them out is
             # what makes a session directory safe to attach to an issue.
             _list_field("env keys", spec.env_keys),

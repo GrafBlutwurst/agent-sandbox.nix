@@ -50,6 +50,51 @@ let
         builtins.throw "${errorPrefix} allowedLocalPorts must only contain integers from 1 to 65535 (null allows all). Invalid: ${builtins.toJSON invalidPorts}"
       else
         pkgs.lib.unique allowedLocalPorts;
+  # allowedInboundPorts entries are an integer port (bound to 127.0.0.1) or
+  # { port; bindAddr ? "127.0.0.1"; }. Normalized to the attrset form and
+  # deduplicated on the (port, bindAddr) pair — the same port bound on two
+  # addresses is a legitimate grant (e.g. loopback plus a container bridge
+  # gateway). Deliberately no null form: "every port, reachable from the
+  # host" is never the intended inbound surface, unlike the outbound
+  # option's null.
+  validateAllowedInboundPorts =
+    allowedInboundPorts:
+    if !(builtins.isList allowedInboundPorts) then
+      builtins.throw "${errorPrefix} allowedInboundPorts must be a list whose entries are integers from 1 to 65535 or { port = <int>; bindAddr = \"<ipv4>\"; }"
+    else
+      let
+        validPort = port: builtins.isInt port && port >= 1 && port <= 65535;
+        validAddr =
+          addr:
+          builtins.isString addr
+          && builtins.match "([0-9]{1,3}\\.){3}[0-9]{1,3}" addr != null
+          && builtins.all (octet: pkgs.lib.toInt octet <= 255) (
+            builtins.filter builtins.isString (builtins.split "\\." addr)
+          );
+        normalize =
+          entry:
+          if builtins.isInt entry then
+            {
+              port = entry;
+              bindAddr = "127.0.0.1";
+            }
+          else if builtins.isAttrs entry then
+            {
+              port = entry.port or null;
+              bindAddr = entry.bindAddr or "127.0.0.1";
+            }
+          else
+            {
+              port = null;
+              bindAddr = null;
+            };
+        normalized = map normalize allowedInboundPorts;
+        invalid = builtins.filter (entry: !(validPort entry.port) || !(validAddr entry.bindAddr)) normalized;
+      in
+      if invalid != [ ] then
+        builtins.throw "${errorPrefix} allowedInboundPorts entries must be integers from 1 to 65535 or { port = <1-65535>; bindAddr = \"<ipv4>\"; }. Invalid: ${builtins.toJSON invalid}"
+      else
+        pkgs.lib.unique normalized;
   # Raised on macOS too, where the combination would technically work, so
   # the two platforms accept the same configurations.
   validateAllowUnixSockets =
@@ -151,18 +196,21 @@ let
       buildSpec,
       legacyArgs,
       allowedLocalPorts,
+      allowedInboundPorts,
       allowUnixSockets,
     }:
     builtins.seq (assertNoLegacyArgs legacyArgs) (
       builtins.seq allowedLocalPorts (
-        builtins.seq allowUnixSockets (
-          pkgs.runCommand outName { } ''
-            mkdir -p $out/bin
-            install -m755 ${stub} $out/bin/${outName}
-          ''
-          // {
-            buildSpec = buildSpec;
-          }
+        builtins.seq allowedInboundPorts (
+          builtins.seq allowUnixSockets (
+            pkgs.runCommand outName { } ''
+              mkdir -p $out/bin
+              install -m755 ${stub} $out/bin/${outName}
+            ''
+            // {
+              buildSpec = buildSpec;
+            }
+          )
         )
       )
     );
@@ -173,6 +221,7 @@ in
   sandboxProxy = sandboxProxy;
   assertNoLegacyArgs = assertNoLegacyArgs;
   validateAllowedLocalPorts = validateAllowedLocalPorts;
+  validateAllowedInboundPorts = validateAllowedInboundPorts;
   validateAllowUnixSockets = validateAllowUnixSockets;
   preEntryScript = preEntryScript;
   launcherPackage = launcherPackage;

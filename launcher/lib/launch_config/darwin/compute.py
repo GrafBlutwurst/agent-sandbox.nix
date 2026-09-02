@@ -201,7 +201,7 @@ def _get_profile_lines(
         lines += seatbelt.network_open(spec.allowed_local_ports)
     else:
         lines += seatbelt.network_restricted(
-            session.proxy.port, spec.allowed_local_ports
+            session.proxy.port, spec.allowed_local_ports, spec.allowed_inbound_ports
         )
 
     # After the network rules, so the allows outrank open mode's blanket

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
-from launcher.lib.build_spec import SandboxBuildSpecLinux
+from launcher.lib.build_spec import InboundPort, SandboxBuildSpecLinux
 from launcher.lib.constants import (
     CA_BUNDLE,
     CA_CERT,
@@ -51,7 +51,7 @@ SANDBOX_PASSWD = Path("/etc/passwd")
 PASTA_GATEWAY_IP = "10.0.2.2"
 PASTA_NAMESPACE_IP = "10.0.2.1"
 PASTA_NETMASK = "255.255.255.0"
-PASTA_FLAGS = (
+PASTA_FLAGS_PREFIX = (
     "-4",
     "--config-net",
     "-a",
@@ -60,8 +60,8 @@ PASTA_FLAGS = (
     PASTA_GATEWAY_IP,
     "-n",
     PASTA_NETMASK,
-    "-t",
-    "none",
+)
+PASTA_FLAGS_SUFFIX = (
     "-u",
     "none",
     "-T",
@@ -70,6 +70,23 @@ PASTA_FLAGS = (
     "none",
     "--",
 )
+
+
+def _get_pasta_tcp_flags(
+    allowed_inbound_ports: Sequence[InboundPort],
+) -> list[str]:
+    """The -t forwards: host bind_addr:port reaches the same port inside the
+    namespace. pasta splices each forward over the namespace loopback — the
+    sandboxed server sees 127.0.0.1 as its peer and must listen on loopback
+    or 0.0.0.0 — so replies ride the existing `oif lo accept` nft rule and
+    no ruleset change is needed. Everything not named here stays
+    unforwarded: pasta only binds what -t lists."""
+    if not allowed_inbound_ports:
+        return ["-t", "none"]
+    flags: list[str] = []
+    for forward in allowed_inbound_ports:
+        flags += ["-t", f"{forward.bind_addr}/{forward.port}"]
+    return flags
 
 ROUTE_LOCALNET_SYSCTLS = (
     "/proc/sys/net/ipv4/conf/all/route_localnet",
@@ -249,7 +266,9 @@ def compute_launch_config(
 
     argv_before_env = (
         [str(spec.dependencies.pasta)]
-        + list(PASTA_FLAGS)
+        + list(PASTA_FLAGS_PREFIX)
+        + _get_pasta_tcp_flags(spec.allowed_inbound_ports)
+        + list(PASTA_FLAGS_SUFFIX)
         + [
             str(spec.dependencies.python),
             "-P",

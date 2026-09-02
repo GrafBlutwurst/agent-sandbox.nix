@@ -14,6 +14,11 @@
   env ? { },
   allowedDomains ? null,
   allowedLocalPorts ? [ ],
+  # Host→sandbox TCP forwards: an integer port (bound to 127.0.0.1) or
+  # { port; bindAddr ? "127.0.0.1"; }. A wider bindAddr (e.g. "0.0.0.0" or a
+  # container bridge gateway) exposes the sandboxed service to everything
+  # that can reach that address.
+  allowedInboundPorts ? [ ],
   # Internal, for the test harness: maps "host" to "addr:port" so the proxy
   # dials a local address instead of resolving the original.
   _proxyRedirects ? { },
@@ -42,6 +47,8 @@ let
 
   validatedAllowedLocalPorts = shared.validateAllowedLocalPorts allowedLocalPorts;
 
+  validatedAllowedInboundPorts = shared.validateAllowedInboundPorts allowedInboundPorts;
+
   validatedAllowUnixSockets = shared.validateAllowUnixSockets {
     allowNix = allowNix;
     allowUnixSockets = allowUnixSockets;
@@ -65,6 +72,7 @@ let
       roFiles = roFiles;
       env = env;
       allowedLocalPorts = validatedAllowedLocalPorts;
+      allowedInboundPorts = validatedAllowedInboundPorts;
       allowUnixSockets = validatedAllowUnixSockets;
       closurePathsFile = closurePathsFile;
       preEntryScript = shared.preEntryScript;
@@ -94,5 +102,6 @@ shared.mkWrapper {
     stateFiles = stateFiles;
   };
   allowedLocalPorts = validatedAllowedLocalPorts;
+  allowedInboundPorts = validatedAllowedInboundPorts;
   allowUnixSockets = validatedAllowUnixSockets;
 }
