@@ -12,14 +12,8 @@ def get_nft_rules(
     """Restricted mode drops everything by default and permits only
     in-namespace loopback and TCP to the proxy. Open mode drops only traffic
     addressed to the pasta gateway, which blocks host loopback services
-    without touching internet traffic.
-
-    allowed_inbound_ports are the pasta -t forwards' in-namespace ports:
-    replies on those flows need their own accept, because only host-LOCAL
-    peers arrive over the spliced loopback (covered by `oif lo accept`) —
-    a non-local peer (e.g. a docker container calling back in) is delivered
-    over the tap device with its real source address, so the server's
-    replies leave via the tap and would hit the drop policy."""
+    without touching internet traffic. allowed_inbound_ports are the pasta -t
+    forwards' in-namespace ports."""
     if allowed_local_ports is None:
         # TCP-only; null means every host-local TCP port.
         matches = ["meta l4proto tcp"]
@@ -38,9 +32,12 @@ def get_nft_rules(
             "{ type filter hook output priority 0 ; policy drop ; }"
         )
         rules.append("add rule ip sandbox_filter output oif lo accept")
-        # Reply traffic of inbound forwards. `ct state established` keeps this
-        # from widening egress: an outbound flow sourced from a granted port
-        # never reaches established, because its initial SYN is dropped here.
+        # Reply traffic of inbound forwards: a non-local peer is delivered
+        # over the tap device (not the spliced loopback), so the server's
+        # replies leave via the tap and need their own accept. `ct state
+        # established` keeps this from widening egress: an outbound flow
+        # sourced from a granted port never reaches established, because its
+        # initial SYN is dropped here.
         rules += [
             f"add rule ip sandbox_filter output tcp sport {port} "
             "ct state established accept"

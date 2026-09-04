@@ -76,16 +76,10 @@ def _get_pasta_tcp_flags(
     allowed_inbound_ports: Sequence[InboundPort],
 ) -> list[str]:
     """The -t forwards: host bind_addr:port reaches the same port inside the
-    namespace. Delivery depends on the peer: a host-LOCAL peer is spliced
-    over the namespace loopback (server sees 127.0.0.1), while a non-local
-    peer — e.g. a docker container dialing the bind address — arrives over
-    the tap device addressed to the namespace IP with its real source
-    address. A server bound only to 127.0.0.1 is therefore unreachable for
-    non-local peers: listen on 0.0.0.0 for container callbacks. Spliced
-    replies ride `oif lo accept`; tap replies need the per-port
-    `ct state established` accepts get_nft_rules emits for these forwards.
-    Everything not named here stays unforwarded: pasta only binds what -t
-    lists."""
+    namespace; everything not named here stays unforwarded. A non-local peer
+    is delivered over the tap device with its real source address, so a
+    server bound only to 127.0.0.1 is unreachable for container callbacks —
+    listen on 0.0.0.0 for those. Reply handling lives in get_nft_rules."""
     if not allowed_inbound_ports:
         return ["-t", "none"]
     flags: list[str] = []

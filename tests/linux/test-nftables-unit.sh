@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
-# Unit tests for the namespace nft ruleset (no sandbox launch). Regression
-# guard for the inbound-forward reply drop: a non-local peer of a pasta -t
-# forward (e.g. a docker container calling back into the sandbox) is
-# delivered over the tap device, so the server's replies leave via the tap —
-# without a per-port `ct state established` accept they hit the restricted
-# OUTPUT drop policy and the handshake stalls until pasta resets the peer.
+# Unit tests for the namespace nft ruleset (no sandbox launch). Pins the
+# per-port reply accepts for inbound forwards (rationale in get_nft_rules).
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"

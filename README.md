@@ -217,9 +217,7 @@ allowedInboundPorts = [
 ];
 ```
 
-Each entry forwards `bindAddr:port` on the host to the same port inside the sandbox. On Linux the forward is a pasta TCP splice over the sandbox loopback, so the sandboxed server must listen on `127.0.0.1` or `0.0.0.0` and sees `127.0.0.1` as its peer. On macOS there is no network namespace: the grant allows the sandboxed process to bind and accept on that port directly, and a non-loopback `bindAddr` maps to the Seatbelt wildcard.
-
-The `bindAddr` is the exposure decision. The `127.0.0.1` default is reachable from host processes only. Anything wider — `0.0.0.0`, or a container bridge address such as docker's `172.17.0.1` so containers can call back via `host.docker.internal` — exposes whatever the agent runs on that port to everything that can reach that address. Declare individual fixed ports, never ranges, and prefer the narrowest `bindAddr` that serves the caller.
+The `bindAddr` is the exposure decision: the `127.0.0.1` default is reachable from host processes only, anything wider exposes whatever the agent runs on that port to everything that can reach that address. Prefer the narrowest `bindAddr` that serves the caller.
 
 ### UNIX-domain sockets
 

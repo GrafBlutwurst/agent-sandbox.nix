@@ -51,13 +51,9 @@ let
         builtins.throw "${errorPrefix} allowedOutboundLocalPorts must only contain integers from 1 to 65535 (null allows all). Invalid: ${builtins.toJSON invalidPorts}"
       else
         pkgs.lib.unique allowedOutboundLocalPorts;
-  # allowedInboundPorts entries are an integer port (bound to 127.0.0.1) or
-  # { port; bindAddr ? "127.0.0.1"; }. Normalized to the attrset form and
-  # deduplicated on the (port, bindAddr) pair — the same port bound on two
-  # addresses is a legitimate grant (e.g. loopback plus a container bridge
-  # gateway). Deliberately no null form: "every port, reachable from the
-  # host" is never the intended inbound surface, unlike the outbound
-  # option's null.
+  # Normalizes entries to { port; bindAddr; } and dedupes on the pair.
+  # Deliberately no null form: "every port, reachable from the host" is
+  # never the intended inbound surface, unlike the outbound option's null.
   validateAllowedInboundPorts =
     allowedInboundPorts:
     if !(builtins.isList allowedInboundPorts) then

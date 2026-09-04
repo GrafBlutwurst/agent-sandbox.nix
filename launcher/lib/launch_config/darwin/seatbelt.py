@@ -359,11 +359,9 @@ def _local_port_rules(allowed_local_ports: Sequence[int] | None) -> list[str]:
 
 
 def _inbound_port_rules(allowed_inbound_ports: Sequence[InboundPort]) -> list[str]:
-    # Darwin has no network namespace: the sandboxed process binds host
-    # interfaces directly, so the grant IS the bind + accept allowance —
-    # nothing is forwarded. A loopback bindAddr stays loopback-scoped; any
-    # other address becomes the wildcard, because Seatbelt's ip filter only
-    # distinguishes localhost from *.
+    # Darwin has no network namespace: the grant IS the bind + accept
+    # allowance, nothing is forwarded. A non-loopback bindAddr becomes the
+    # wildcard, because Seatbelt's ip filter only knows localhost vs *.
     rules: list[str] = []
     for forward in allowed_inbound_ports:
         local = (

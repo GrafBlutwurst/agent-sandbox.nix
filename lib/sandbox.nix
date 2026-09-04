@@ -15,9 +15,8 @@
   allowedDomains ? null,
   allowedOutboundLocalPorts ? [ ],
   # Host→sandbox TCP forwards: an integer port (bound to 127.0.0.1) or
-  # { port; bindAddr ? "127.0.0.1"; }. A wider bindAddr (e.g. "0.0.0.0" or a
-  # container bridge gateway) exposes the sandboxed service to everything
-  # that can reach that address.
+  # { port; bindAddr ? "127.0.0.1"; }. A wider bindAddr exposes the service
+  # to everything that can reach that address.
   allowedInboundPorts ? [ ],
   # Internal, for the test harness: maps "host" to "addr:port" so the proxy
   # dials a local address instead of resolving the original.
