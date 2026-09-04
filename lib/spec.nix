@@ -36,7 +36,6 @@ let
         bwrap = "${pkgs.bubblewrap}/bin/bwrap";
         pasta = "${pkgs.passt}/bin/pasta";
         nft = "${pkgs.nftables}/bin/nft";
-        ip = "${pkgs.iproute2}/bin/ip";
         env = "${pkgs.coreutils}/bin/env";
         python = "${pkgs.python3}/bin/python3";
       }

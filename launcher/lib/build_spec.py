@@ -48,7 +48,6 @@ class DependenciesLinux:
     bwrap: Path
     pasta: Path
     nft: Path
-    ip: Path
     env: Path
     python: Path
 
@@ -58,12 +57,9 @@ class DependenciesLinux:
         bwrap = Path(data["bwrap"])
         pasta = Path(data["pasta"])
         nft = Path(data["nft"])
-        ip = Path(data["ip"])
         env = Path(data["env"])
         python = Path(data["python"])
-        return cls(
-            git=git, bwrap=bwrap, pasta=pasta, nft=nft, ip=ip, env=env, python=python
-        )
+        return cls(git=git, bwrap=bwrap, pasta=pasta, nft=nft, env=env, python=python)
 
 
 @dataclass(frozen=True, kw_only=True)

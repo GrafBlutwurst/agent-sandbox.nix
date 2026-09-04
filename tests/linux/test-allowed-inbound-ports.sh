@@ -107,11 +107,9 @@ fi
 expect_fail run_host "host cannot reach an undeclared port" \
 	"'$HOST_PYTHON3' -c 'import sys, urllib.request; urllib.request.urlopen(\"http://127.0.0.1:$UNDECLARED_PORT/\", timeout=3)'"
 
-# Inbound grants keep the namespace's default route (replies to non-local
-# peers need it), leaving the OUTPUT drop policy as the sole egress
-# enforcement — pin that direct egress is still blocked in this
-# configuration. The socket timeout makes this deterministic with or
-# without real internet on the test host.
+# The OUTPUT drop policy is the sole egress enforcement (the default route
+# stays: inbound replies to non-local peers need it) — pin that direct
+# egress is blocked in this configuration.
 run_inside() { "$SHELL_BIN" --norc --noprofile -c "$1" >/dev/null 2>&1; }
 expect_fail run_inside "direct egress stays blocked while inbound ports are granted" \
 	"python3 -c 'import socket; s = socket.socket(); s.settimeout(5); s.connect((\"1.1.1.1\", 443))'"
