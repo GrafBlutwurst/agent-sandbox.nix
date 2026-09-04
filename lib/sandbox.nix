@@ -14,8 +14,6 @@
   env ? { },
   allowedDomains ? null,
   allowedOutboundLocalPorts ? [ ],
-  # A wider bindAddr than the 127.0.0.1 default exposes the sandboxed
-  # service to everything that can reach that address.
   allowedInboundPorts ? [ ],
   # Internal, for the test harness: maps "host" to "addr:port" so the proxy
   # dials a local address instead of resolving the original.
