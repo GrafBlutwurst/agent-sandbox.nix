@@ -85,8 +85,6 @@ let
     # fragment the stub sources; they never reach Python.
     env_keys = builtins.attrNames env;
     allowed_local_ports = allowedLocalPorts;
-    # Already normalized by validateAllowedInboundPorts; renamed to the
-    # snake_case wire shape here.
     allowed_inbound_ports = map (entry: {
       port = entry.port;
       bind_addr = entry.bindAddr;

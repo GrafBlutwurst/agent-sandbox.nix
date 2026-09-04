@@ -51,7 +51,6 @@ let
         builtins.throw "${errorPrefix} allowedOutboundLocalPorts must only contain integers from 1 to 65535 (null allows all). Invalid: ${builtins.toJSON invalidPorts}"
       else
         pkgs.lib.unique allowedOutboundLocalPorts;
-  # Normalizes entries to { port; bindAddr; } and dedupes on the pair.
   # Deliberately no null form: "every port, reachable from the host" is
   # never the intended inbound surface, unlike the outbound option's null.
   validateAllowedInboundPorts =

@@ -31,9 +31,6 @@ class ProxySpec:
 
 @dataclass(frozen=True, kw_only=True)
 class InboundPort:
-    """One host→sandbox TCP forward: bind_addr:port on the host reaches the
-    same port inside the sandbox."""
-
     port: int
     bind_addr: str
 
@@ -92,8 +89,6 @@ class SandboxBuildSpec:
     env_keys: tuple[str, ...]
     # None means every host-local TCP port; the empty tuple means none.
     allowed_local_ports: tuple[int, ...] | None
-    # Host→sandbox TCP forwards; the empty tuple means none. Deliberately no
-    # None form: inbound has no "all ports" mode.
     allowed_inbound_ports: tuple[InboundPort, ...]
     closure_paths_file: Path
     cacert_dir: Path
