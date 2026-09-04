@@ -14,7 +14,7 @@
   roDirs,
   roFiles,
   env,
-  allowedLocalPorts,
+  allowedOutboundLocalPorts,
   allowedInboundPorts,
   closurePathsFile,
   preEntryScript,
@@ -84,7 +84,7 @@ let
     # Keys only. The values are runtime shell expressions, emitted as a
     # fragment the stub sources; they never reach Python.
     env_keys = builtins.attrNames env;
-    allowed_local_ports = allowedLocalPorts;
+    allowed_outbound_local_ports = allowedOutboundLocalPorts;
     allowed_inbound_ports = map (entry: {
       port = entry.port;
       bind_addr = entry.bindAddr;

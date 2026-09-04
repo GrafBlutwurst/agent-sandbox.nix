@@ -337,7 +337,7 @@ var errBlockedAddress = errors.New("host resolves to a blocked address")
 // isBlockedAddr reports whether ip is an address the proxy must never dial.
 // The allowlist matches names, and the address behind a name is chosen by
 // whoever controls its DNS: an allowlisted name pointed at 127.0.0.1 would
-// reach exactly the host services allowedLocalPorts exists to gate, since
+// reach exactly the host services allowedOutboundLocalPorts exists to gate, since
 // the proxy runs on the host outside the sandbox's confinement. Private
 // ranges are deliberately not blocked: allowlisting an internal server is a
 // legitimate configuration.

@@ -348,13 +348,13 @@ def unix_sockets(
     return lines
 
 
-def _local_port_rules(allowed_local_ports: Sequence[int] | None) -> list[str]:
+def _local_port_rules(allowed_outbound_local_ports: Sequence[int] | None) -> list[str]:
     # TCP-only; None means every host-local TCP port.
-    if allowed_local_ports is None:
+    if allowed_outbound_local_ports is None:
         return ['(allow network-outbound (remote ip "localhost:*"))']
     return [
         f'(allow network-outbound (remote ip "localhost:{port}"))'
-        for port in allowed_local_ports
+        for port in allowed_outbound_local_ports
     ]
 
 
@@ -376,7 +376,7 @@ def _inbound_port_rules(allowed_inbound_ports: Sequence[InboundPort]) -> list[st
 
 def network_restricted(
     proxy_port: int,
-    allowed_local_ports: Sequence[int] | None,
+    allowed_outbound_local_ports: Sequence[int] | None,
     allowed_inbound_ports: Sequence[InboundPort],
 ) -> list[str]:
     # Pinned to the proxy port so other loopback services cannot be reached
@@ -391,12 +391,12 @@ def network_restricted(
             "(allow system-socket)",
             f'(allow network-outbound (remote ip "localhost:{proxy_port}"))',
         ]
-        + _local_port_rules(allowed_local_ports)
+        + _local_port_rules(allowed_outbound_local_ports)
         + _inbound_port_rules(allowed_inbound_ports)
     )
 
 
-def network_open(allowed_local_ports: Sequence[int] | None) -> list[str]:
+def network_open(allowed_outbound_local_ports: Sequence[int] | None) -> list[str]:
     # system-socket gates socket(PF_SYSTEM, ...), meaning kernel-control
     # sockets and utun, not AF_UNIX. No _inbound_port_rules here: the blanket
     # (allow network*) already covers bind and inbound in open mode.
@@ -410,4 +410,4 @@ def network_open(allowed_local_ports: Sequence[int] | None) -> list[str]:
         ";; Required for DNS: getaddrinfo() resolves over this socket.",
         "(allow network-outbound",
         '  (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))',
-    ] + _local_port_rules(allowed_local_ports)
+    ] + _local_port_rules(allowed_outbound_local_ports)

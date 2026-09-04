@@ -245,7 +245,7 @@ def compute_launch_config(
 
     proxy_port = session.proxy.port if session.proxy is not None else None
     sysctls: dict[str, str] = {}
-    if spec.allowed_local_ports is None or spec.allowed_local_ports:
+    if spec.allowed_outbound_local_ports is None or spec.allowed_outbound_local_ports:
         # DNAT from the sandbox's loopback needs route_localnet, which no nft
         # ruleset can express.
         sysctls = {path: "1" for path in ROUTE_LOCALNET_SYSCTLS}
@@ -310,7 +310,7 @@ def compute_launch_config(
                 get_nft_rules(
                     PASTA_GATEWAY_IP,
                     proxy_port,
-                    spec.allowed_local_ports,
+                    spec.allowed_outbound_local_ports,
                     [forward.port for forward in spec.allowed_inbound_ports],
                 )
             ),

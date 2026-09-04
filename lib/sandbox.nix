@@ -68,7 +68,7 @@ let
       roDirs = roDirs;
       roFiles = roFiles;
       env = env;
-      allowedLocalPorts = validatedAllowedOutboundLocalPorts;
+      allowedOutboundLocalPorts = validatedAllowedOutboundLocalPorts;
       allowedInboundPorts = validatedAllowedInboundPorts;
       allowUnixSockets = validatedAllowUnixSockets;
       closurePathsFile = closurePathsFile;
@@ -99,7 +99,7 @@ shared.mkWrapper {
     stateFiles = stateFiles;
     allowedLocalPorts = allowedLocalPorts;
   };
-  allowedLocalPorts = validatedAllowedOutboundLocalPorts;
+  allowedOutboundLocalPorts = validatedAllowedOutboundLocalPorts;
   allowedInboundPorts = validatedAllowedInboundPorts;
   allowUnixSockets = validatedAllowUnixSockets;
 }

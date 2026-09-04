@@ -6,7 +6,7 @@ from typing import Sequence
 def get_nft_rules(
     gateway_ip: str,
     proxy_port: int | None,
-    allowed_local_ports: Sequence[int] | None,
+    allowed_outbound_local_ports: Sequence[int] | None,
     allowed_inbound_ports: Sequence[int] = (),
 ) -> list[str]:
     """Restricted mode drops everything by default and permits only
@@ -14,11 +14,11 @@ def get_nft_rules(
     addressed to the pasta gateway, which blocks host loopback services
     without touching internet traffic. allowed_inbound_ports are the pasta -t
     forwards' in-namespace ports."""
-    if allowed_local_ports is None:
+    if allowed_outbound_local_ports is None:
         # TCP-only; null means every host-local TCP port.
         matches = ["meta l4proto tcp"]
     else:
-        matches = [f"tcp dport {port}" for port in allowed_local_ports]
+        matches = [f"tcp dport {port}" for port in allowed_outbound_local_ports]
 
     rules = ["add table ip sandbox_filter"]
     if proxy_port is None:

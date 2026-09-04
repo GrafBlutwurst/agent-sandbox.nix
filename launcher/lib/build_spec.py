@@ -88,7 +88,7 @@ class SandboxBuildSpec:
     # never enter this process.
     env_keys: tuple[str, ...]
     # None means every host-local TCP port; the empty tuple means none.
-    allowed_local_ports: tuple[int, ...] | None
+    allowed_outbound_local_ports: tuple[int, ...] | None
     allowed_inbound_ports: tuple[InboundPort, ...]
     closure_paths_file: Path
     cacert_dir: Path
@@ -126,7 +126,7 @@ class _CommonBuildSpec(TypedDict):
     ro_dirs: tuple[str, ...]
     ro_files: tuple[str, ...]
     env_keys: tuple[str, ...]
-    allowed_local_ports: tuple[int, ...] | None
+    allowed_outbound_local_ports: tuple[int, ...] | None
     allowed_inbound_ports: tuple[InboundPort, ...]
     closure_paths_file: Path
     cacert_dir: Path
@@ -138,11 +138,11 @@ class _CommonBuildSpec(TypedDict):
 
 
 def _common_build_spec(data: Mapping[str, Any]) -> _CommonBuildSpec:
-    ports = data["allowed_local_ports"]
+    ports = data["allowed_outbound_local_ports"]
     if ports is None:
-        allowed_local_ports = None
+        allowed_outbound_local_ports = None
     else:
-        allowed_local_ports = tuple(ports)
+        allowed_outbound_local_ports = tuple(ports)
 
     allowed_inbound_ports = tuple(
         InboundPort.from_dict(entry) for entry in data["allowed_inbound_ports"]
@@ -165,7 +165,7 @@ def _common_build_spec(data: Mapping[str, Any]) -> _CommonBuildSpec:
         ro_dirs=tuple(data["ro_dirs"]),
         ro_files=tuple(data["ro_files"]),
         env_keys=tuple(data["env_keys"]),
-        allowed_local_ports=allowed_local_ports,
+        allowed_outbound_local_ports=allowed_outbound_local_ports,
         allowed_inbound_ports=allowed_inbound_ports,
         closure_paths_file=Path(data["closure_paths_file"]),
         cacert_dir=Path(data["cacert_dir"]),

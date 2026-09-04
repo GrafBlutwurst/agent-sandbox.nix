@@ -53,10 +53,10 @@ def write_launch_request(
     now: datetime,
 ) -> None:
     """Written before the host is read, so it survives everything after it."""
-    if spec.allowed_local_ports is None:
+    if spec.allowed_outbound_local_ports is None:
         local_ports = "all host-local TCP ports"
-    elif spec.allowed_local_ports:
-        local_ports = ", ".join(str(port) for port in spec.allowed_local_ports)
+    elif spec.allowed_outbound_local_ports:
+        local_ports = ", ".join(str(port) for port in spec.allowed_outbound_local_ports)
     else:
         local_ports = _NONE
 

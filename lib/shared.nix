@@ -202,12 +202,12 @@ let
       stub,
       buildSpec,
       legacyArgs,
-      allowedLocalPorts,
+      allowedOutboundLocalPorts,
       allowedInboundPorts,
       allowUnixSockets,
     }:
     builtins.seq (assertNoLegacyArgs legacyArgs) (
-      builtins.seq allowedLocalPorts (
+      builtins.seq allowedOutboundLocalPorts (
         builtins.seq allowedInboundPorts (
           builtins.seq allowUnixSockets (
             pkgs.runCommand outName { } ''
