@@ -208,7 +208,7 @@ On macOS, a service started inside the sandbox also needs its port listed here, 
 
 #### Inbound ports
 
-`allowedOutboundLocalPorts` is outbound only: it never makes anything the agent runs reachable from outside the sandbox. When something outside must call INTO the sandbox — an integration-test suite that hosts a callback server, a dev server you want to open in the host browser — declare the ports with `allowedInboundPorts`:
+When something outside must call INTO the sandbox — an integration-test suite that hosts a callback server, a dev server you want to open in the host browser — declare the ports with `allowedInboundPorts`:
 
 ```nix
 allowedInboundPorts = [
