@@ -100,14 +100,18 @@ class _UnixSocketScope:
 
 
 def _get_unix_socket_scope(
-    host: HostStateDarwin, repo_root: Path | None
+    host: HostStateDarwin, repo_root: Path | None, sandbox_tmpdir: Path
 ) -> _UnixSocketScope:
     # The repository root joins the connect set: build servers keep their
     # rendezvous sockets at the build root (.bsp, .bloop, nailgun), not the
     # module directory the agent was launched in. It arrives already gated by
     # get_grantable_repo_root, so at a work tree root there is nothing to add:
     # the build root is the launch directory, which is in `writable` below.
-    writable = [host.cwd]
+    #
+    # The session tmpdir joins the bind set: tools create their IPC sockets
+    # under $TMPDIR. The directory is sandbox-private, so no host listener
+    # can live there.
+    writable = [host.cwd, sandbox_tmpdir]
     for declared in host.declared:
         if isinstance(declared, DeclaredDir) and declared.mode == "rw":
             writable.append(declared.expanded_path)
@@ -208,7 +212,7 @@ def _get_profile_lines(
     # unix-socket deny by last-match. Before nix_support, so the nested-ro
     # denies can never shadow the daemon socket allow.
     if spec.allow_unix_sockets:
-        scope = _get_unix_socket_scope(host, repo_root)
+        scope = _get_unix_socket_scope(host, repo_root, session.sandbox_tmpdir)
         lines += seatbelt.unix_sockets(
             scope.writable,
             scope.connect_dirs,
