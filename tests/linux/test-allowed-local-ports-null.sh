@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test: allowedLocalPorts = null allows all host-local TCP ports on Linux.
+# Test: allowedOutboundLocalPorts = null allows all host-local TCP ports on Linux.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TEST_CWD="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -37,7 +37,7 @@ for port in "$PORT_A" "$PORT_B"; do
 	fi
 done
 
-echo "=== allowedLocalPorts = null (Linux) ==="
+echo "=== allowedOutboundLocalPorts = null (Linux) ==="
 echo "PORT_A=$PORT_A PORT_B=$PORT_B"
 echo
 

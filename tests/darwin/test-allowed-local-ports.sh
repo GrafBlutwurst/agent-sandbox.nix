@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test: allowedLocalPorts allows explicitly configured host-local TCP ports
+# Test: allowedOutboundLocalPorts allows explicitly configured host-local TCP ports
 # while preserving the default block for neighboring host-local TCP ports.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -38,7 +38,7 @@ for port in "$ALLOWED_PORT" "$DENIED_PORT"; do
 	fi
 done
 
-echo "=== allowedLocalPorts (Darwin) ==="
+echo "=== allowedOutboundLocalPorts (Darwin) ==="
 echo "ALLOWED_PORT=$ALLOWED_PORT DENIED_PORT=$DENIED_PORT"
 echo
 

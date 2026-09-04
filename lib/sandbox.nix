@@ -13,7 +13,7 @@
   roFiles ? [ ],
   env ? { },
   allowedDomains ? null,
-  allowedLocalPorts ? [ ],
+  allowedOutboundLocalPorts ? [ ],
   # Host→sandbox TCP forwards: an integer port (bound to 127.0.0.1) or
   # { port; bindAddr ? "127.0.0.1"; }. A wider bindAddr (e.g. "0.0.0.0" or a
   # container bridge gateway) exposes the sandboxed service to everything
@@ -27,6 +27,7 @@
   extraEnv ? null,
   stateDirs ? null,
   stateFiles ? null,
+  allowedLocalPorts ? null,
 }:
 let
   platform = if pkgs.stdenv.isDarwin then "darwin" else "linux";
@@ -45,7 +46,7 @@ let
     ++ [ shared.preEntryScript ]
   );
 
-  validatedAllowedLocalPorts = shared.validateAllowedLocalPorts allowedLocalPorts;
+  validatedAllowedOutboundLocalPorts = shared.validateAllowedOutboundLocalPorts allowedOutboundLocalPorts;
 
   validatedAllowedInboundPorts = shared.validateAllowedInboundPorts allowedInboundPorts;
 
@@ -71,7 +72,7 @@ let
       roDirs = roDirs;
       roFiles = roFiles;
       env = env;
-      allowedLocalPorts = validatedAllowedLocalPorts;
+      allowedLocalPorts = validatedAllowedOutboundLocalPorts;
       allowedInboundPorts = validatedAllowedInboundPorts;
       allowUnixSockets = validatedAllowUnixSockets;
       closurePathsFile = closurePathsFile;
@@ -100,8 +101,9 @@ shared.mkWrapper {
     extraEnv = extraEnv;
     stateDirs = stateDirs;
     stateFiles = stateFiles;
+    allowedLocalPorts = allowedLocalPorts;
   };
-  allowedLocalPorts = validatedAllowedLocalPorts;
+  allowedLocalPorts = validatedAllowedOutboundLocalPorts;
   allowedInboundPorts = validatedAllowedInboundPorts;
   allowUnixSockets = validatedAllowUnixSockets;
 }

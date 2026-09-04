@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# allowedLocalPorts accepts null or TCP port integers.
+# allowedOutboundLocalPorts accepts null or TCP port integers.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -41,17 +41,17 @@ expect_invalid_ports() {
 	fi
 }
 
-echo "=== allowedLocalPorts validation ==="
+echo "=== allowedOutboundLocalPorts validation ==="
 echo
 
 expect_ok_ports "integer port is accepted" "[ 3000 ]"
 expect_ok_ports "null allows all ports" "null"
 expect_ok_ports "duplicates are accepted" "[ 3000 3000 ]"
-expect_invalid_ports "string port is rejected" '[ "3000" ]' "allowedLocalPorts must only contain integers"
-expect_invalid_ports "colon-delimited string is rejected" '[ "localhost:3000" ]' "allowedLocalPorts must only contain integers"
-expect_invalid_ports "zero is rejected" "[ 0 ]" "allowedLocalPorts must only contain integers"
-expect_invalid_ports "port above range is rejected" "[ 65536 ]" "allowedLocalPorts must only contain integers"
-expect_invalid_ports "negative port is rejected" "[ (-1) ]" "allowedLocalPorts must only contain integers"
+expect_invalid_ports "string port is rejected" '[ "3000" ]' "allowedOutboundLocalPorts must only contain integers"
+expect_invalid_ports "colon-delimited string is rejected" '[ "localhost:3000" ]' "allowedOutboundLocalPorts must only contain integers"
+expect_invalid_ports "zero is rejected" "[ 0 ]" "allowedOutboundLocalPorts must only contain integers"
+expect_invalid_ports "port above range is rejected" "[ 65536 ]" "allowedOutboundLocalPorts must only contain integers"
+expect_invalid_ports "negative port is rejected" "[ (-1) ]" "allowedOutboundLocalPorts must only contain integers"
 
 print_results
 exit_status

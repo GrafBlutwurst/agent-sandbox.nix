@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# allowedLocalPorts is emitted as host-local TCP port rules in the Darwin
+# allowedOutboundLocalPorts is emitted as host-local TCP port rules in the Darwin
 # Seatbelt profile.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -52,7 +52,7 @@ expect_rule_count() {
 	fi
 }
 
-echo "=== allowedLocalPorts Seatbelt rules (Darwin) ==="
+echo "=== allowedOutboundLocalPorts Seatbelt rules (Darwin) ==="
 echo
 
 expect_rule_count "integer port emits one localhost rule" \

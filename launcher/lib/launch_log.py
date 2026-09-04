@@ -84,7 +84,7 @@ def write_launch_request(
             _field("network", network),
             _field("allowNix", str(spec.allow_nix).lower()),
             _field("allowUnixSockets", str(spec.allow_unix_sockets).lower()),
-            _field("allowedLocalPorts", local_ports),
+            _field("allowedOutboundLocalPorts", local_ports),
             _field("allowedInboundPorts", inbound_ports),
             # Keys only. The values must never land here: keeping them out is
             # what makes a session directory safe to attach to an issue.

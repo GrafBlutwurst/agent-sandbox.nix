@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test: allowedLocalPorts allows explicitly configured host-local TCP ports on
+# Test: allowedOutboundLocalPorts allows explicitly configured host-local TCP ports on
 # Linux while preserving sandbox-local loopback and the default block for
 # neighboring host-local TCP ports.
 set -euo pipefail
@@ -40,7 +40,7 @@ for port in "$ALLOWED_PORT" "$DENIED_PORT"; do
 	fi
 done
 
-echo "=== allowedLocalPorts (Linux) ==="
+echo "=== allowedOutboundLocalPorts (Linux) ==="
 echo "ALLOWED_PORT=$ALLOWED_PORT DENIED_PORT=$DENIED_PORT INSIDE_PORT=$INSIDE_PORT"
 echo
 

@@ -35,21 +35,22 @@ let
           allowedDomains;
     in
     pkgs.writeText "sandbox-allowlist.json" (builtins.toJSON attrset);
-  validateAllowedLocalPorts =
-    allowedLocalPorts:
-    if allowedLocalPorts == null then
+  # Shared by the outbound and inbound port validators.
+  validPort = port: builtins.isInt port && port >= 1 && port <= 65535;
+  validateAllowedOutboundLocalPorts =
+    allowedOutboundLocalPorts:
+    if allowedOutboundLocalPorts == null then
       null
-    else if !(builtins.isList allowedLocalPorts) then
-      builtins.throw "${errorPrefix} allowedLocalPorts must be null or a list of integers from 1 to 65535"
+    else if !(builtins.isList allowedOutboundLocalPorts) then
+      builtins.throw "${errorPrefix} allowedOutboundLocalPorts must be null or a list of integers from 1 to 65535"
     else
       let
-        validPort = port: builtins.isInt port && port >= 1 && port <= 65535;
-        invalidPorts = builtins.filter (port: !validPort port) allowedLocalPorts;
+        invalidPorts = builtins.filter (port: !validPort port) allowedOutboundLocalPorts;
       in
       if invalidPorts != [ ] then
-        builtins.throw "${errorPrefix} allowedLocalPorts must only contain integers from 1 to 65535 (null allows all). Invalid: ${builtins.toJSON invalidPorts}"
+        builtins.throw "${errorPrefix} allowedOutboundLocalPorts must only contain integers from 1 to 65535 (null allows all). Invalid: ${builtins.toJSON invalidPorts}"
       else
-        pkgs.lib.unique allowedLocalPorts;
+        pkgs.lib.unique allowedOutboundLocalPorts;
   # allowedInboundPorts entries are an integer port (bound to 127.0.0.1) or
   # { port; bindAddr ? "127.0.0.1"; }. Normalized to the attrset form and
   # deduplicated on the (port, bindAddr) pair — the same port bound on two
@@ -63,7 +64,6 @@ let
       builtins.throw "${errorPrefix} allowedInboundPorts must be a list whose entries are integers from 1 to 65535 or { port = <int>; bindAddr = \"<ipv4>\"; }"
     else
       let
-        validPort = port: builtins.isInt port && port >= 1 && port <= 65535;
         validAddr =
           addr:
           builtins.isString addr
@@ -111,9 +111,15 @@ let
       extraEnv,
       stateDirs,
       stateFiles,
+      allowedLocalPorts,
     }:
     let
       legacyArgHints = {
+        allowedLocalPorts =
+          if allowedLocalPorts != null then
+            "- The 'allowedLocalPorts' argument is deprecated. Use 'allowedOutboundLocalPorts' instead."
+          else
+            null;
         restrictNetwork =
           if restrictNetwork != null then
             "- The 'restrictNetwork' argument is deprecated. Network access is controlled by 'allowedDomains': omit it for open internet, set a list/attrset to filter, or [] to block all."
@@ -137,7 +143,13 @@ let
       );
       throwMsg = "${errorPrefix} Deprecated arguments:\n\n${throwMsgHints}\n\nMigration guide: https://github.com/archie-judd/agent-sandbox.nix/blob/main/README.md#v0x-to-v1x-migration-guide";
     in
-    if restrictNetwork != null || extraEnv != null || stateDirs != null || stateFiles != null then
+    if
+      restrictNetwork != null
+      || extraEnv != null
+      || stateDirs != null
+      || stateFiles != null
+      || allowedLocalPorts != null
+    then
       builtins.throw throwMsg
     else
       null;
@@ -220,7 +232,7 @@ in
   mkAllowlistFile = mkAllowlistFile;
   sandboxProxy = sandboxProxy;
   assertNoLegacyArgs = assertNoLegacyArgs;
-  validateAllowedLocalPorts = validateAllowedLocalPorts;
+  validateAllowedOutboundLocalPorts = validateAllowedOutboundLocalPorts;
   validateAllowedInboundPorts = validateAllowedInboundPorts;
   validateAllowUnixSockets = validateAllowUnixSockets;
   preEntryScript = preEntryScript;

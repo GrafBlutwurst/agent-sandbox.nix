@@ -6,5 +6,5 @@ in sandbox.mkSandbox {
   binName = "bash";
   outName = "sandboxed-bash-allowed-local-ports";
   allowedPackages = [ pkgs.coreutils pkgs.curl pkgs.python3Minimal ];
-  allowedLocalPorts = ports;
+  allowedOutboundLocalPorts = ports;
 }
