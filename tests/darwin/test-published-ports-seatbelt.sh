@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# allowedInboundPorts is emitted as port-pinned bind + inbound rules in the
+# publishedPorts is emitted as port-pinned bind + inbound rules in the
 # Darwin Seatbelt profile: loopback bindAddr stays localhost-scoped, any other
 # bindAddr becomes the wildcard.
 set -euo pipefail
@@ -14,7 +14,7 @@ SESSIONS=$(mktemp -d)
 trap 'rm -rf "$SESSIONS"' EXIT
 
 sandbox_profile_for_wrapper() {
-	local wrapper="$1/bin/sandboxed-bash-allowed-inbound-ports"
+	local wrapper="$1/bin/sandboxed-bash-published-ports"
 	local run
 	local profile
 	run=$(mktemp -d "$SESSIONS/run.XXXXXX")
@@ -30,7 +30,7 @@ expect_rule_count() {
 	local desc="$1" ports="$2" rule="$3" count="$4"
 	local build_log out profile actual
 	build_log=$(mktemp)
-	if ! out=$(build_fixture allowed-inbound-ports.nix --arg inboundPorts "$ports" 2>"$build_log"); then
+	if ! out=$(build_fixture published-ports.nix --arg publishedPorts "$ports" 2>"$build_log"); then
 		echo "FAIL: $desc (build failed)"
 		sed 's/^/    /' "$build_log"
 		rm -f "$build_log"
@@ -53,7 +53,7 @@ expect_rule_count() {
 	fi
 }
 
-echo "=== allowedInboundPorts Seatbelt rules (Darwin) ==="
+echo "=== publishedPorts Seatbelt rules (Darwin) ==="
 echo
 
 expect_rule_count "integer entry emits one localhost inbound rule" \

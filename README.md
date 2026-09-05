@@ -28,7 +28,7 @@ The sandbox denies everything else. `$HOME` is an ephemeral writable tmpfs that 
     * [Network restrictions](#network-restrictions)
         * [Domain and internet access](#domain-and-internet-access)
         * [Host ports](#host-ports)
-        * [Inbound ports](#inbound-ports)
+        * [Published ports](#published-ports)
     * [UNIX-domain sockets](#unix-domain-sockets)
     * [Supported agents](#supported-agents)
 * [Authentication](#authentication)
@@ -130,7 +130,7 @@ To keep the original command name as the alias, change the `outName` value, for 
 | `allowedDomains` | no | Limits the domains the sandbox can reach. Leave it unset for open internet. Accepts a list of domains (all methods allowed), or an attrset that maps each domain to `"*"` or to a list of HTTP methods. `[ ]` blocks all internet access. |
 | `allowUnixSockets` | no | If `true`, the agent can create and connect to UNIX-domain (AF_UNIX) sockets. It can connect in directories it can read, and bind in directories it can write. Defaults to `false`. See [UNIX-domain sockets](#unix-domain-sockets). |
 | `allowedHostPorts` | no | Host-local TCP ports the sandbox can reach. Defaults to `[ ]`. Set it to `null` to allow all host-local TCP ports. Otherwise, entries must be integers from `1` to `65535`. |
-| `allowedInboundPorts` | no | Host TCP ports forwarded INTO the sandbox, so services the agent runs are reachable from outside. Defaults to `[ ]`. Entries are an integer port (bound to `127.0.0.1`) or `{ port = <int>; bindAddr = "<ipv4>"; }`. There is no `null` form. See [Inbound ports](#inbound-ports). |
+| `publishedPorts` | no | Host TCP ports forwarded INTO the sandbox, so services the agent runs are reachable from outside. Defaults to `[ ]`. Entries are an integer port (bound to `127.0.0.1`) or `{ port = <int>; bindAddr = "<ipv4>"; }`. There is no `null` form. See [Published ports](#published-ports). |
 | `allowNix` | no | If `true`, the sandbox exposes the host's `nix-daemon` socket and the full Nix store, so the agent can run `nix build`, `nix run`, `nix develop`, and similar commands. The sandbox adds `pkgs.nix` to PATH. Requires `allowUnixSockets = true`. Defaults to `false`. See [Using Nix inside the sandbox](#using-nix-inside-the-sandbox). |
 
 The sandbox adds `bash` and `cacert` to `allowedPackages` by default. The sandbox needs a shell to run, and `cacert` is necessary for HTTPS. The library also exports `commonTools`, a list of standard CLI tools. See [`default.nix`](default.nix) for the full list.
@@ -174,7 +174,7 @@ The example sets `CLAUDE_CONFIG_DIR` to `$HOME/.claude` so that Claude writes `~
 
 ### Network restrictions
 
-The sandbox controls network access with three independent settings. `allowedDomains` controls outbound internet access. `allowedHostPorts` controls access to host-local TCP services, such as databases and dev servers. `allowedInboundPorts` controls which sandbox-hosted TCP services are reachable from outside. The settings do not interact. An allowed domain never gives loopback access, an allowed local port never gives internet access, and neither makes anything inside the sandbox reachable — only `allowedInboundPorts` does that. By default, internet access is open, all host-local services are blocked, and nothing inside the sandbox is reachable from outside.
+The sandbox controls network access with three independent settings. `allowedDomains` controls outbound internet access. `allowedHostPorts` controls access to host-local TCP services, such as databases and dev servers. `publishedPorts` controls which sandbox-hosted TCP services are reachable from outside. The settings do not interact. An allowed domain never gives loopback access, an allowed local port never gives internet access, and neither makes anything inside the sandbox reachable — only `publishedPorts` does that. By default, internet access is open, all host-local services are blocked, and nothing inside the sandbox is reachable from outside.
 
 #### Domain and internet access
 
@@ -206,12 +206,12 @@ Set `allowedHostPorts = null;` to allow all host-local TCP ports. Keep explicit 
 
 On macOS, a service started inside the sandbox also needs its port listed here, because `sandbox-exec` shares localhost with the host and cannot tell the two apart. See [Linux vs macOS](#linux-vs-macos).
 
-#### Inbound ports
+#### Published ports
 
-When something outside must call INTO the sandbox — an integration-test suite that hosts a callback server, a dev server you want to open in the host browser — declare the ports with `allowedInboundPorts`:
+When something outside must call INTO the sandbox — an integration-test suite that hosts a callback server, a dev server you want to open in the host browser — declare the ports with `publishedPorts`:
 
 ```nix
-allowedInboundPorts = [
+publishedPorts = [
   3000                                      # host 127.0.0.1:3000 → sandbox :3000
   { port = 8000; bindAddr = "0.0.0.0"; }    # reachable from anything that can reach the host
 ];

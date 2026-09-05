@@ -5,7 +5,7 @@
 #
 # Usage:
 #   export CLAUDE_CODE_OAUTH_TOKEN="<your_token_here>"
-#   nix-shell shells/claude-inbound-ports.shell.nix
+#   nix-shell shells/claude-published-ports.shell.nix
 let
   pkgs = import <nixpkgs> {
     config.allowUnfreePredicate = pkg: pkgs.lib.getName pkg == "claude-code";
@@ -29,7 +29,7 @@ let
       "anthropic.com" = "*";
       "claude.com" = "*";
     };
-    allowedInboundPorts = [
+    publishedPorts = [
       # host 127.0.0.1:3000 → sandbox :3000 (host processes only). On Linux
       # the sandboxed server must listen on 127.0.0.1 or 0.0.0.0.
       3000

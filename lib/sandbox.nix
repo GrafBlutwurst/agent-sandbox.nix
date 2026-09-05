@@ -14,7 +14,7 @@
   env ? { },
   allowedDomains ? null,
   allowedHostPorts ? [ ],
-  allowedInboundPorts ? [ ],
+  publishedPorts ? [ ],
   # Internal, for the test harness: maps "host" to "addr:port" so the proxy
   # dials a local address instead of resolving the original.
   _proxyRedirects ? { },
@@ -44,7 +44,7 @@ let
 
   validatedAllowedHostPorts = shared.validateAllowedHostPorts allowedHostPorts;
 
-  validatedAllowedInboundPorts = shared.validateAllowedInboundPorts allowedInboundPorts;
+  validatedPublishedPorts = shared.validatePublishedPorts publishedPorts;
 
   validatedAllowUnixSockets = shared.validateAllowUnixSockets {
     allowNix = allowNix;
@@ -69,7 +69,7 @@ let
       roFiles = roFiles;
       env = env;
       allowedLocalPorts = validatedAllowedHostPorts;
-      allowedInboundPorts = validatedAllowedInboundPorts;
+      allowedInboundPorts = validatedPublishedPorts;
       allowUnixSockets = validatedAllowUnixSockets;
       closurePathsFile = closurePathsFile;
       preEntryScript = shared.preEntryScript;
@@ -100,6 +100,6 @@ shared.mkWrapper {
     allowedLocalPorts = allowedLocalPorts;
   };
   allowedLocalPorts = validatedAllowedHostPorts;
-  allowedInboundPorts = validatedAllowedInboundPorts;
+  allowedInboundPorts = validatedPublishedPorts;
   allowUnixSockets = validatedAllowUnixSockets;
 }

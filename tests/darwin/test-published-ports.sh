@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test: allowedInboundPorts lets the sandboxed process accept host TCP
+# Test: publishedPorts lets the sandboxed process accept host TCP
 # connections on declared ports (direct binds — Darwin has no network
 # namespace) while undeclared ports stay unbindable/unreachable.
 set -euo pipefail
@@ -11,9 +11,9 @@ source "$SCRIPT_DIR/../lib.sh"
 GRANTED_PORT=18944
 UNDECLARED_PORT=18945
 
-SANDBOXED=$(build_fixture allowed-inbound-ports.nix \
-	--arg inboundPorts "[ { port = $GRANTED_PORT; bindAddr = \"127.0.0.1\"; } ]")
-SHELL_BIN="$SANDBOXED/bin/sandboxed-bash-allowed-inbound-ports"
+SANDBOXED=$(build_fixture published-ports.nix \
+	--arg publishedPorts "[ { port = $GRANTED_PORT; bindAddr = \"127.0.0.1\"; } ]")
+SHELL_BIN="$SANDBOXED/bin/sandboxed-bash-published-ports"
 
 HOST_PYTHON3=$(build_host_pkg python3Minimal)/bin/python3
 
@@ -31,7 +31,7 @@ sys.exit(0 if body == b"inbound-ok" else 1)
 
 TESTDIR_ROOT="$TEST_CWD/.tmp-test"
 mkdir -p "$TESTDIR_ROOT"
-TESTDIR=$(mktemp -d "$TESTDIR_ROOT/allowed-inbound-ports-darwin.XXXXXX")
+TESTDIR=$(mktemp -d "$TESTDIR_ROOT/published-ports-darwin.XXXXXX")
 
 SANDBOX_PID=""
 cleanup() {
@@ -50,7 +50,7 @@ for port in "$GRANTED_PORT" "$UNDECLARED_PORT"; do
 	fi
 done
 
-echo "=== allowedInboundPorts (Darwin) ==="
+echo "=== publishedPorts (Darwin) ==="
 echo "GRANTED_PORT=$GRANTED_PORT UNDECLARED_PORT=$UNDECLARED_PORT"
 echo
 

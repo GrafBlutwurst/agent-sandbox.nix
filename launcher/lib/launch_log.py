@@ -85,7 +85,7 @@ def write_launch_request(
             _field("allowNix", str(spec.allow_nix).lower()),
             _field("allowUnixSockets", str(spec.allow_unix_sockets).lower()),
             _field("allowedHostPorts", local_ports),
-            _field("allowedInboundPorts", inbound_ports),
+            _field("publishedPorts", inbound_ports),
             # Keys only. The values must never land here: keeping them out is
             # what makes a session directory safe to attach to an issue.
             _list_field("env keys", spec.env_keys),

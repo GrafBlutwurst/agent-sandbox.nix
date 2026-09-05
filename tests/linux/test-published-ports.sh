@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test: allowedInboundPorts forwards declared host TCP ports into the sandbox
+# Test: publishedPorts forwards declared host TCP ports into the sandbox
 # (pasta -t, spliced over the namespace loopback) while undeclared neighbors
 # stay unbound on the host.
 set -euo pipefail
@@ -12,14 +12,14 @@ GRANTED_PORT=18944
 UNDECLARED_PORT=18945
 NONLOCAL_PORT=18946
 
-SANDBOXED=$(build_fixture allowed-inbound-ports.nix \
-	--arg inboundPorts "[ { port = $GRANTED_PORT; bindAddr = \"127.0.0.1\"; } ]")
-SHELL_BIN="$SANDBOXED/bin/sandboxed-bash-allowed-inbound-ports"
+SANDBOXED=$(build_fixture published-ports.nix \
+	--arg publishedPorts "[ { port = $GRANTED_PORT; bindAddr = \"127.0.0.1\"; } ]")
+SHELL_BIN="$SANDBOXED/bin/sandboxed-bash-published-ports"
 
 HOST_PYTHON3=$(build_host_pkg python3Minimal)/bin/python3
 
 # Host-side runner for expect_*: the assertions here are about what the HOST
-# can reach, the inverse of the allowed-local-ports test.
+# can reach, the inverse of the allowed-host-ports test.
 run_host() { bash -c "$1" >/dev/null 2>&1; }
 
 host_fetch() {
@@ -64,7 +64,7 @@ await_server() {
 
 TESTDIR_ROOT="$TEST_CWD/.tmp-test"
 mkdir -p "$TESTDIR_ROOT"
-TESTDIR=$(mktemp -d "$TESTDIR_ROOT/allowed-inbound-ports-linux.XXXXXX")
+TESTDIR=$(mktemp -d "$TESTDIR_ROOT/published-ports-linux.XXXXXX")
 
 SANDBOX_PID=""
 SANDBOX_ANY_PID=""
@@ -91,7 +91,7 @@ for port in "$GRANTED_PORT" "$UNDECLARED_PORT" "$NONLOCAL_PORT"; do
 	fi
 done
 
-echo "=== allowedInboundPorts (Linux) ==="
+echo "=== publishedPorts (Linux) ==="
 echo "GRANTED_PORT=$GRANTED_PORT UNDECLARED_PORT=$UNDECLARED_PORT"
 echo
 
@@ -118,7 +118,7 @@ expect_fail run_host "host cannot reach an undeclared port" \
 # stays: inbound replies to non-local peers need it) — pin that direct
 # egress is blocked in this configuration.
 run_inside() { "$SHELL_BIN" --norc --noprofile -c "$1" >/dev/null 2>&1; }
-expect_fail run_inside "direct egress stays blocked while inbound ports are granted" \
+expect_fail run_inside "direct egress stays blocked while published ports are granted" \
 	"python3 -c 'import socket; s = socket.socket(); s.settimeout(5); s.connect((\"1.1.1.1\", 443))'"
 
 # Non-loopback grant: bindAddr = "0.0.0.0" is reachable on the host's own
@@ -127,9 +127,9 @@ expect_fail run_inside "direct egress stays blocked while inbound ports are gran
 # address; skipped otherwise, like test-network.sh's LAN-IP check.
 HOST_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' || echo "")
 if [ -n "$HOST_IP" ]; then
-	SANDBOXED_ANY=$(build_fixture allowed-inbound-ports.nix \
-		--arg inboundPorts "[ { port = $NONLOCAL_PORT; bindAddr = \"0.0.0.0\"; } ]")
-	SHELL_BIN_ANY="$SANDBOXED_ANY/bin/sandboxed-bash-allowed-inbound-ports"
+	SANDBOXED_ANY=$(build_fixture published-ports.nix \
+		--arg publishedPorts "[ { port = $NONLOCAL_PORT; bindAddr = \"0.0.0.0\"; } ]")
+	SHELL_BIN_ANY="$SANDBOXED_ANY/bin/sandboxed-bash-published-ports"
 	(cd "$TEST_CWD" && "$SHELL_BIN_ANY" --norc --noprofile -c \
 		"python3 '$SCRIPT_DIR/../helpers/inside-http-serve.py' 0.0.0.0 $NONLOCAL_PORT") \
 		>"$TESTDIR/sandbox-any.log" 2>&1 &
@@ -147,7 +147,7 @@ if [ -n "$HOST_IP" ]; then
 	expect_fail run_host "loopback-scoped grant is not reachable on the host address" \
 		"'$HOST_PYTHON3' -c 'import sys, urllib.request; urllib.request.urlopen(\"http://$HOST_IP:$GRANTED_PORT/\", timeout=3)'"
 else
-	echo "SKIP: no host IPv4 address detected; skipping non-loopback inbound checks" >&2
+	echo "SKIP: no host IPv4 address detected; skipping non-loopback published-port checks" >&2
 fi
 
 print_results

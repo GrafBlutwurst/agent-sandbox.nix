@@ -35,7 +35,7 @@ let
           allowedDomains;
     in
     pkgs.writeText "sandbox-allowlist.json" (builtins.toJSON attrset);
-  # Shared by the outbound and inbound port validators.
+  # Shared by the host-port and published-port validators.
   validPort = port: builtins.isInt port && port >= 1 && port <= 65535;
   validateAllowedHostPorts =
     allowedHostPorts:
@@ -52,11 +52,11 @@ let
       else
         pkgs.lib.unique allowedHostPorts;
   # Deliberately no null form: "every port, reachable from the host" is
-  # never the intended inbound surface, unlike the outbound option's null.
-  validateAllowedInboundPorts =
-    allowedInboundPorts:
-    if !(builtins.isList allowedInboundPorts) then
-      builtins.throw "${errorPrefix} allowedInboundPorts must be a list whose entries are integers from 1 to 65535 or { port = <int>; bindAddr = \"<ipv4>\"; }"
+  # never the intended published surface, unlike allowedHostPorts' null.
+  validatePublishedPorts =
+    publishedPorts:
+    if !(builtins.isList publishedPorts) then
+      builtins.throw "${errorPrefix} publishedPorts must be a list whose entries are integers from 1 to 65535 or { port = <int>; bindAddr = \"<ipv4>\"; }"
     else
       let
         validAddr =
@@ -83,11 +83,11 @@ let
               port = null;
               bindAddr = null;
             };
-        normalized = map normalize allowedInboundPorts;
+        normalized = map normalize publishedPorts;
         invalid = builtins.filter (entry: !(validPort entry.port) || !(validAddr entry.bindAddr)) normalized;
       in
       if invalid != [ ] then
-        builtins.throw "${errorPrefix} allowedInboundPorts entries must be integers from 1 to 65535 or { port = <1-65535>; bindAddr = \"<ipv4>\"; }. Invalid: ${builtins.toJSON invalid}"
+        builtins.throw "${errorPrefix} publishedPorts entries must be integers from 1 to 65535 or { port = <1-65535>; bindAddr = \"<ipv4>\"; }. Invalid: ${builtins.toJSON invalid}"
       else
         pkgs.lib.unique normalized;
   # Raised on macOS too, where the combination would technically work, so
@@ -228,7 +228,7 @@ in
   sandboxProxy = sandboxProxy;
   assertNoLegacyArgs = assertNoLegacyArgs;
   validateAllowedHostPorts = validateAllowedHostPorts;
-  validateAllowedInboundPorts = validateAllowedInboundPorts;
+  validatePublishedPorts = validatePublishedPorts;
   validateAllowUnixSockets = validateAllowUnixSockets;
   preEntryScript = preEntryScript;
   launcherPackage = launcherPackage;
