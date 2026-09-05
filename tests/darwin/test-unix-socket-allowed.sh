@@ -5,8 +5,9 @@
 # different mechanisms: additive over deny-default in filtered mode,
 # outranking the blanket unix-socket deny by last-match in open mode. A
 # third variant asserts the ro semantics inside the writable scope: connect
-# works, bind is denied (issue #84). Flag-off behaviour is covered by
-# test-unix-socket-egress-denied.sh.
+# works, bind is denied (issue #84). The session TMPDIR is part of the bind
+# scope: tools create their IPC sockets under $TMPDIR. Flag-off behaviour
+# is covered by test-unix-socket-egress-denied.sh.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -41,6 +42,18 @@ run_open() {
 }
 run_nested() {
 	(cd "$TESTDIR" && "$SANDBOXED_NESTED/bin/sandboxed-bash" --norc --noprofile -c "$1") >/dev/null 2>&1
+}
+
+# For the TMPDIR checks: a short sessions root keeps the session tmpdir's
+# socket paths inside the sun_path budget (see the note above).
+SESS_ROOT=$(mktemp -d /private/tmp/uxsock-sess.XXXXXX)
+run_filtered_sess() {
+	(cd "$TESTDIR" && AGENT_SANDBOX_SESSIONS_ROOT="$SESS_ROOT" \
+		"$SANDBOXED_FILTERED/bin/sandboxed-bash" --norc --noprofile -c "$1") >/dev/null 2>&1
+}
+run_open_sess() {
+	(cd "$TESTDIR" && AGENT_SANDBOX_SESSIONS_ROOT="$SESS_ROOT" \
+		"$SANDBOXED_OPEN/bin/sandboxed-bash" --norc --noprofile -c "$1") >/dev/null 2>&1
 }
 
 # Declared paths OUTSIDE the launch dir, for the per-mode semantics: rw
@@ -85,6 +98,24 @@ cli.sendall(b\"x\")
 assert conn.recv(1) == b\"x\"
 "'
 
+# The same round-trip on a socket under the session TMPDIR.
+IN_TMPDIR_CHECK='python3 -c "
+import socket, os
+path = os.path.join(os.environ[\"TMPDIR\"], \"t.sock\")
+try:
+    os.unlink(path)
+except FileNotFoundError:
+    pass
+srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+srv.bind(path)
+srv.listen(1)
+cli = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+cli.connect(path)
+conn, _ = srv.accept()
+cli.sendall(b\"x\")
+assert conn.recv(1) == b\"x\"
+"'
+
 LISTENER_PIDS=""
 cleanup() {
 	if [ -n "$LISTENER_PIDS" ]; then
@@ -93,7 +124,7 @@ cleanup() {
 		# shellcheck disable=SC2086
 		wait $LISTENER_PIDS 2>/dev/null || true
 	fi
-	rm -rf "$SOCK_DIR" "$TESTDIR" "$RW_DIR" "$RO_DIR" "$RO_FILE_DIR" "$REPO"
+	rm -rf "$SOCK_DIR" "$TESTDIR" "$RW_DIR" "$RO_DIR" "$RO_FILE_DIR" "$REPO" "$SESS_ROOT"
 }
 trap cleanup EXIT
 
@@ -169,6 +200,11 @@ expect_ok run_filtered "socat binary is available inside the sandbox" "command -
 
 expect_ok run_filtered "filtered: bind+connect a socket in CWD" "$IN_CWD_CHECK"
 expect_ok run_open "open: bind+connect a socket in CWD" "$IN_CWD_CHECK"
+
+# The session TMPDIR is writable and sandbox-private, so it is part of the
+# bind scope.
+expect_ok run_filtered_sess "filtered: bind+connect a socket in TMPDIR" "$IN_TMPDIR_CHECK"
+expect_ok run_open_sess "open: bind+connect a socket in TMPDIR" "$IN_TMPDIR_CHECK"
 
 # The scope must not leak: a host socket outside CWD + rwDirs stays denied
 # even with the flag on. printf sends a byte so socat really connect()s.
