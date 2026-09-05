@@ -78,7 +78,7 @@ expect_legacy_throw "stateFiles is rejected with migration hint" \
 expect_legacy_throw "restrictNetwork is rejected with migration hint" \
 	'restrictNetwork = true;' "'restrictNetwork' argument is deprecated"
 expect_legacy_throw "allowedLocalPorts is rejected with migration hint" \
-	'allowedLocalPorts = [ ];' "Use 'allowedOutboundLocalPorts' instead."
+	'allowedLocalPorts = [ ];' "Use 'allowedHostPorts' instead."
 
 print_results
 exit_status

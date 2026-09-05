@@ -37,20 +37,20 @@ let
     pkgs.writeText "sandbox-allowlist.json" (builtins.toJSON attrset);
   # Shared by the outbound and inbound port validators.
   validPort = port: builtins.isInt port && port >= 1 && port <= 65535;
-  validateAllowedOutboundLocalPorts =
-    allowedOutboundLocalPorts:
-    if allowedOutboundLocalPorts == null then
+  validateAllowedHostPorts =
+    allowedHostPorts:
+    if allowedHostPorts == null then
       null
-    else if !(builtins.isList allowedOutboundLocalPorts) then
-      builtins.throw "${errorPrefix} allowedOutboundLocalPorts must be null or a list of integers from 1 to 65535"
+    else if !(builtins.isList allowedHostPorts) then
+      builtins.throw "${errorPrefix} allowedHostPorts must be null or a list of integers from 1 to 65535"
     else
       let
-        invalidPorts = builtins.filter (port: !validPort port) allowedOutboundLocalPorts;
+        invalidPorts = builtins.filter (port: !validPort port) allowedHostPorts;
       in
       if invalidPorts != [ ] then
-        builtins.throw "${errorPrefix} allowedOutboundLocalPorts must only contain integers from 1 to 65535 (null allows all). Invalid: ${builtins.toJSON invalidPorts}"
+        builtins.throw "${errorPrefix} allowedHostPorts must only contain integers from 1 to 65535 (null allows all). Invalid: ${builtins.toJSON invalidPorts}"
       else
-        pkgs.lib.unique allowedOutboundLocalPorts;
+        pkgs.lib.unique allowedHostPorts;
   # Deliberately no null form: "every port, reachable from the host" is
   # never the intended inbound surface, unlike the outbound option's null.
   validateAllowedInboundPorts =
@@ -112,7 +112,7 @@ let
       legacyArgHints = {
         allowedLocalPorts =
           if allowedLocalPorts != null then
-            "- The 'allowedLocalPorts' argument is deprecated. Use 'allowedOutboundLocalPorts' instead."
+            "- The 'allowedLocalPorts' argument is deprecated. Use 'allowedHostPorts' instead."
           else
             null;
         restrictNetwork =
@@ -227,7 +227,7 @@ in
   mkAllowlistFile = mkAllowlistFile;
   sandboxProxy = sandboxProxy;
   assertNoLegacyArgs = assertNoLegacyArgs;
-  validateAllowedOutboundLocalPorts = validateAllowedOutboundLocalPorts;
+  validateAllowedHostPorts = validateAllowedHostPorts;
   validateAllowedInboundPorts = validateAllowedInboundPorts;
   validateAllowUnixSockets = validateAllowUnixSockets;
   preEntryScript = preEntryScript;

@@ -13,7 +13,7 @@
   roFiles ? [ ],
   env ? { },
   allowedDomains ? null,
-  allowedOutboundLocalPorts ? [ ],
+  allowedHostPorts ? [ ],
   allowedInboundPorts ? [ ],
   # Internal, for the test harness: maps "host" to "addr:port" so the proxy
   # dials a local address instead of resolving the original.
@@ -42,7 +42,7 @@ let
     ++ [ shared.preEntryScript ]
   );
 
-  validatedAllowedOutboundLocalPorts = shared.validateAllowedOutboundLocalPorts allowedOutboundLocalPorts;
+  validatedAllowedHostPorts = shared.validateAllowedHostPorts allowedHostPorts;
 
   validatedAllowedInboundPorts = shared.validateAllowedInboundPorts allowedInboundPorts;
 
@@ -68,7 +68,7 @@ let
       roDirs = roDirs;
       roFiles = roFiles;
       env = env;
-      allowedLocalPorts = validatedAllowedOutboundLocalPorts;
+      allowedLocalPorts = validatedAllowedHostPorts;
       allowedInboundPorts = validatedAllowedInboundPorts;
       allowUnixSockets = validatedAllowUnixSockets;
       closurePathsFile = closurePathsFile;
@@ -99,7 +99,7 @@ shared.mkWrapper {
     stateFiles = stateFiles;
     allowedLocalPorts = allowedLocalPorts;
   };
-  allowedLocalPorts = validatedAllowedOutboundLocalPorts;
+  allowedLocalPorts = validatedAllowedHostPorts;
   allowedInboundPorts = validatedAllowedInboundPorts;
   allowUnixSockets = validatedAllowUnixSockets;
 }

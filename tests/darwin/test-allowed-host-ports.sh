@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test: allowedOutboundLocalPorts allows explicitly configured host-local TCP ports
+# Test: allowedHostPorts allows explicitly configured host-local TCP ports
 # while preserving the default block for neighboring host-local TCP ports.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -7,8 +7,8 @@ TEST_CWD="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 source "$SCRIPT_DIR/../lib.sh"
 
-SANDBOXED=$(build_fixture allowed-local-ports.nix)
-SHELL="$SANDBOXED/bin/sandboxed-bash-allowed-local-ports"
+SANDBOXED=$(build_fixture allowed-host-ports.nix)
+SHELL="$SANDBOXED/bin/sandboxed-bash-allowed-host-ports"
 
 HOST_PYTHON3=$(build_host_pkg python3Minimal)/bin/python3
 
@@ -19,7 +19,7 @@ DENIED_PORT=18935
 
 TESTDIR_ROOT="$TEST_CWD/.tmp-test"
 mkdir -p "$TESTDIR_ROOT"
-TESTDIR=$(mktemp -d "$TESTDIR_ROOT/allowed-local-ports-darwin.XXXXXX")
+TESTDIR=$(mktemp -d "$TESTDIR_ROOT/allowed-host-ports-darwin.XXXXXX")
 
 SERVER_PID=""
 cleanup() {
@@ -38,7 +38,7 @@ for port in "$ALLOWED_PORT" "$DENIED_PORT"; do
 	fi
 done
 
-echo "=== allowedOutboundLocalPorts (Darwin) ==="
+echo "=== allowedHostPorts (Darwin) ==="
 echo "ALLOWED_PORT=$ALLOWED_PORT DENIED_PORT=$DENIED_PORT"
 echo
 
