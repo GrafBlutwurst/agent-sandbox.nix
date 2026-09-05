@@ -202,13 +202,13 @@ let
       stub,
       buildSpec,
       legacyArgs,
-      allowedLocalPorts,
-      allowedInboundPorts,
+      allowedHostPorts,
+      publishedPorts,
       allowUnixSockets,
     }:
     builtins.seq (assertNoLegacyArgs legacyArgs) (
-      builtins.seq allowedLocalPorts (
-        builtins.seq allowedInboundPorts (
+      builtins.seq allowedHostPorts (
+        builtins.seq publishedPorts (
           builtins.seq allowUnixSockets (
             pkgs.runCommand outName { } ''
               mkdir -p $out/bin

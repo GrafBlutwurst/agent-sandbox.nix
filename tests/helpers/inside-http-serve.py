@@ -2,7 +2,7 @@
 """Serve HTTP inside the sandbox until killed.
 
 Binds the given address and port, prints READY once listening, and answers
-every GET with 'inbound-ok'. The inbound-ports tests background the sandbox
+every GET with 'inbound-ok'. The published-ports tests background the sandbox
 around this server and drive it from the host side.
 """
 import http.server

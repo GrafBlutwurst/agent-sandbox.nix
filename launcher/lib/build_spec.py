@@ -30,7 +30,7 @@ class ProxySpec:
 
 
 @dataclass(frozen=True, kw_only=True)
-class InboundPort:
+class PublishedPort:
     port: int
     bind_addr: str
 
@@ -88,8 +88,8 @@ class SandboxBuildSpec:
     # never enter this process.
     env_keys: tuple[str, ...]
     # None means every host-local TCP port; the empty tuple means none.
-    allowed_local_ports: tuple[int, ...] | None
-    allowed_inbound_ports: tuple[InboundPort, ...]
+    allowed_host_ports: tuple[int, ...] | None
+    published_ports: tuple[PublishedPort, ...]
     closure_paths_file: Path
     cacert_dir: Path
     cacert_bundle: Path
@@ -126,8 +126,8 @@ class _CommonBuildSpec(TypedDict):
     ro_dirs: tuple[str, ...]
     ro_files: tuple[str, ...]
     env_keys: tuple[str, ...]
-    allowed_local_ports: tuple[int, ...] | None
-    allowed_inbound_ports: tuple[InboundPort, ...]
+    allowed_host_ports: tuple[int, ...] | None
+    published_ports: tuple[PublishedPort, ...]
     closure_paths_file: Path
     cacert_dir: Path
     cacert_bundle: Path
@@ -138,14 +138,14 @@ class _CommonBuildSpec(TypedDict):
 
 
 def _common_build_spec(data: Mapping[str, Any]) -> _CommonBuildSpec:
-    ports = data["allowed_local_ports"]
+    ports = data["allowed_host_ports"]
     if ports is None:
-        allowed_local_ports = None
+        allowed_host_ports = None
     else:
-        allowed_local_ports = tuple(ports)
+        allowed_host_ports = tuple(ports)
 
-    allowed_inbound_ports = tuple(
-        InboundPort.from_dict(entry) for entry in data["allowed_inbound_ports"]
+    published_ports = tuple(
+        PublishedPort.from_dict(entry) for entry in data["published_ports"]
     )
 
     proxy_data = data.get("proxy")
@@ -165,8 +165,8 @@ def _common_build_spec(data: Mapping[str, Any]) -> _CommonBuildSpec:
         ro_dirs=tuple(data["ro_dirs"]),
         ro_files=tuple(data["ro_files"]),
         env_keys=tuple(data["env_keys"]),
-        allowed_local_ports=allowed_local_ports,
-        allowed_inbound_ports=allowed_inbound_ports,
+        allowed_host_ports=allowed_host_ports,
+        published_ports=published_ports,
         closure_paths_file=Path(data["closure_paths_file"]),
         cacert_dir=Path(data["cacert_dir"]),
         cacert_bundle=Path(data["cacert_bundle"]),

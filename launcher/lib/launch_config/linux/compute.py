@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
-from launcher.lib.build_spec import InboundPort, SandboxBuildSpecLinux
+from launcher.lib.build_spec import PublishedPort, SandboxBuildSpecLinux
 from launcher.lib.constants import (
     CA_BUNDLE,
     CA_CERT,
@@ -73,17 +73,17 @@ PASTA_FLAGS_SUFFIX = (
 
 
 def _get_pasta_tcp_flags(
-    allowed_inbound_ports: Sequence[InboundPort],
+    published_ports: Sequence[PublishedPort],
 ) -> list[str]:
     """The -t forwards: host bind_addr:port reaches the same port inside the
     namespace; everything not named here stays unforwarded. A non-local peer
     is delivered over the tap device with its real source address, so a
     server bound only to 127.0.0.1 is unreachable for container callbacks —
     listen on 0.0.0.0 for those. Reply handling lives in get_nft_rules."""
-    if not allowed_inbound_ports:
+    if not published_ports:
         return ["-t", "none"]
     flags: list[str] = []
-    for forward in allowed_inbound_ports:
+    for forward in published_ports:
         flags += ["-t", f"{forward.bind_addr}/{forward.port}"]
     return flags
 
@@ -245,7 +245,7 @@ def compute_launch_config(
 
     proxy_port = session.proxy.port if session.proxy is not None else None
     sysctls: dict[str, str] = {}
-    if spec.allowed_local_ports is None or spec.allowed_local_ports:
+    if spec.allowed_host_ports is None or spec.allowed_host_ports:
         # DNAT from the sandbox's loopback needs route_localnet, which no nft
         # ruleset can express.
         sysctls = {path: "1" for path in ROUTE_LOCALNET_SYSCTLS}
@@ -264,7 +264,7 @@ def compute_launch_config(
     argv_before_env = (
         [str(spec.dependencies.pasta)]
         + list(PASTA_FLAGS_PREFIX)
-        + _get_pasta_tcp_flags(spec.allowed_inbound_ports)
+        + _get_pasta_tcp_flags(spec.published_ports)
         + list(PASTA_FLAGS_SUFFIX)
         + [
             str(spec.dependencies.python),
@@ -310,8 +310,8 @@ def compute_launch_config(
                 get_nft_rules(
                     PASTA_GATEWAY_IP,
                     proxy_port,
-                    spec.allowed_local_ports,
-                    [forward.port for forward in spec.allowed_inbound_ports],
+                    spec.allowed_host_ports,
+                    [forward.port for forward in spec.published_ports],
                 )
             ),
             seccomp_filter=seccomp_filter,

@@ -14,8 +14,8 @@
   roDirs,
   roFiles,
   env,
-  allowedLocalPorts,
-  allowedInboundPorts,
+  allowedHostPorts,
+  publishedPorts,
   closurePathsFile,
   preEntryScript,
   allowedDomains,
@@ -84,11 +84,11 @@ let
     # Keys only. The values are runtime shell expressions, emitted as a
     # fragment the stub sources; they never reach Python.
     env_keys = builtins.attrNames env;
-    allowed_local_ports = allowedLocalPorts;
-    allowed_inbound_ports = map (entry: {
+    allowed_host_ports = allowedHostPorts;
+    published_ports = map (entry: {
       port = entry.port;
       bind_addr = entry.bindAddr;
-    }) allowedInboundPorts;
+    }) publishedPorts;
     closure_paths_file = "${closurePathsFile}";
     cacert_dir = "${pkgs.cacert}/etc/ssl/certs";
     cacert_bundle = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";

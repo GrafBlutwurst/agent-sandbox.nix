@@ -6,19 +6,19 @@ from typing import Sequence
 def get_nft_rules(
     gateway_ip: str,
     proxy_port: int | None,
-    allowed_local_ports: Sequence[int] | None,
-    allowed_inbound_ports: Sequence[int] = (),
+    allowed_host_ports: Sequence[int] | None,
+    published_ports: Sequence[int] = (),
 ) -> list[str]:
     """Restricted mode drops everything by default and permits only
     in-namespace loopback and TCP to the proxy. Open mode drops only traffic
     addressed to the pasta gateway, which blocks host loopback services
-    without touching internet traffic. allowed_inbound_ports are the pasta -t
+    without touching internet traffic. published_ports are the pasta -t
     forwards' in-namespace ports."""
-    if allowed_local_ports is None:
+    if allowed_host_ports is None:
         # TCP-only; null means every host-local TCP port.
         matches = ["meta l4proto tcp"]
     else:
-        matches = [f"tcp dport {port}" for port in allowed_local_ports]
+        matches = [f"tcp dport {port}" for port in allowed_host_ports]
 
     rules = ["add table ip sandbox_filter"]
     if proxy_port is None:
@@ -41,7 +41,7 @@ def get_nft_rules(
         rules += [
             f"add rule ip sandbox_filter output tcp sport {port} "
             "ct state established accept"
-            for port in sorted(set(allowed_inbound_ports))
+            for port in sorted(set(published_ports))
         ]
 
     if matches:

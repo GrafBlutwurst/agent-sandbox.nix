@@ -198,10 +198,10 @@ def _get_profile_lines(
     lines += seatbelt.MACH_IPC
 
     if session.proxy is None:
-        lines += seatbelt.network_open(spec.allowed_local_ports)
+        lines += seatbelt.network_open(spec.allowed_host_ports)
     else:
         lines += seatbelt.network_restricted(
-            session.proxy.port, spec.allowed_local_ports, spec.allowed_inbound_ports
+            session.proxy.port, spec.allowed_host_ports, spec.published_ports
         )
 
     # After the network rules, so the allows outrank open mode's blanket
